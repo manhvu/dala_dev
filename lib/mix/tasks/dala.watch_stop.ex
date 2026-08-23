@@ -21,6 +21,7 @@ defmodule Mix.Tasks.Dala.WatchStop do
 
   @impl Mix.Task
   def run(_args) do
+    DalaDev.Output.configure([])
     pid_file = Mix.Tasks.Dala.Watch.pid_file()
 
     case File.read(pid_file) do
@@ -30,20 +31,18 @@ defmodule Mix.Tasks.Dala.WatchStop do
         case System.cmd("kill", [pid], stderr_to_stdout: true) do
           {_, 0} ->
             File.rm(pid_file)
-            IO.puts("#{IO.ANSI.green()}dala.watch stopped (pid #{pid})#{IO.ANSI.reset()}")
+            DalaDev.Output.success("dala.watch stopped (pid #{pid})")
 
           {out, _} ->
             File.rm(pid_file)
 
-            IO.puts(
-              "#{IO.ANSI.yellow()}kill failed (process may have already exited): #{String.trim(out)}#{IO.ANSI.reset()}"
+            DalaDev.Output.warn(
+              "kill failed (process may have already exited): #{String.trim(out)}"
             )
         end
 
       {:error, _} ->
-        IO.puts(
-          "#{IO.ANSI.yellow()}dala.watch is not running (no PID file found)#{IO.ANSI.reset()}"
-        )
+        DalaDev.Output.warn("dala.watch is not running (no PID file found)")
     end
   end
 end

@@ -108,11 +108,13 @@ defmodule DalaDev.Tui.State do
   """
   @spec detail_items(t()) :: [term()]
   def detail_items(%__MODULE__{current_tab: :devices, selected_device: nil}), do: []
+
   def detail_items(%__MODULE__{current_tab: :devices, selected_device: device}) do
     device_detail(device)
   end
 
   def detail_items(%__MODULE__{current_tab: :tasks, selected_task: nil}), do: []
+
   def detail_items(%__MODULE__{current_tab: :tasks, selected_task: task}) do
     task_detail(task)
   end
@@ -122,6 +124,7 @@ defmodule DalaDev.Tui.State do
   end
 
   def detail_items(%__MODULE__{current_tab: :debug, selected_remote: nil}), do: []
+
   def detail_items(%__MODULE__{current_tab: :debug, selected_remote: remote}) do
     remote_detail(remote)
   end
@@ -234,6 +237,9 @@ defmodule DalaDev.Tui.State do
         :up -> max(state.nav_selected - 1, 0)
       end
 
+    # Skip category header rows — they are not selectable actions
+    new_selected = skip_category(items, new_selected, direction, max_idx)
+
     # Update selected item based on new position
     selected = Enum.at(items, new_selected)
     state = %{state | nav_selected: new_selected}
@@ -275,6 +281,22 @@ defmodule DalaDev.Tui.State do
     %{state | detail_selected: new_selected}
   end
 
+  defp skip_category(items, idx, direction, max_idx) do
+    cond do
+      idx > max_idx ->
+        idx
+
+      match?({:category, _, _}, Enum.at(items, idx)) and direction == :down and idx < max_idx ->
+        skip_category(items, idx + 1, direction, max_idx)
+
+      match?({:category, _, _}, Enum.at(items, idx)) and direction == :up and idx > 0 ->
+        skip_category(items, idx - 1, direction, max_idx)
+
+      true ->
+        idx
+    end
+  end
+
   defp handle_enter(%{focus: :nav, current_tab: :devices} = state) do
     items = nav_items(state)
 
@@ -289,6 +311,7 @@ defmodule DalaDev.Tui.State do
 
     case Enum.at(items, state.nav_selected) do
       {:task, task} -> %{state | selected_task: task, detail_selected: 0, current_tab: :output}
+      # Category headers are not selectable actions — no-op
       _ -> state
     end
   end
@@ -313,6 +336,7 @@ defmodule DalaDev.Tui.State do
 
   # ── Detail Builders ─────────────────────────────────────────
 
+  @spec device_detail(Devices.t()) :: [String.t()]
   def device_detail(%Devices{} = device) do
     node_info =
       if device.node do
@@ -344,6 +368,7 @@ defmodule DalaDev.Tui.State do
     ]
   end
 
+  @spec task_detail(Tasks.t()) :: [String.t()]
   def task_detail(%Tasks{} = task) do
     [
       "mix dala.#{task.name}",
@@ -356,6 +381,7 @@ defmodule DalaDev.Tui.State do
     ]
   end
 
+  @spec remote_detail(Remote.t()) :: [String.t()]
   def remote_detail(%Remote{} = remote) do
     version_section = [
       "Node:    #{remote.node}",
@@ -383,23 +409,25 @@ defmodule DalaDev.Tui.State do
       end
 
     assigns_section =
-      if remote.assigns and map_size(remote.assigns) > 0 do
+      if is_map(remote.assigns) and map_size(remote.assigns) > 0 do
         [
           "",
           "Assigns:",
           Enum.map(remote.assigns, fn {k, v} -> "  #{k}: #{inspect(v)}" end)
-        ] |> List.flatten()
+        ]
+        |> List.flatten()
       else
         []
       end
 
     memory_section =
-      if remote.memory and map_size(remote.memory) > 0 do
+      if is_map(remote.memory) and map_size(remote.memory) > 0 do
         [
           "",
           "Memory:",
           Enum.map(remote.memory, fn {k, v} -> "  #{k}: #{format_bytes(v)}" end)
-        ] |> List.flatten()
+        ]
+        |> List.flatten()
       else
         []
       end
@@ -411,7 +439,8 @@ defmodule DalaDev.Tui.State do
         []
       end
 
-    version_section ++ connection_section ++ screen_section ++ assigns_section ++ memory_section ++ process_section
+    version_section ++
+      connection_section ++ screen_section ++ assigns_section ++ memory_section ++ process_section
   end
 
   defp format_bytes(bytes) when is_integer(bytes) do

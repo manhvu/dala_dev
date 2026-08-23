@@ -66,10 +66,11 @@ defmodule DalaDev.ClusterViz do
     node_data =
       Enum.map(nodes, fn node ->
         # Get memory info;
+        # Benchmark.memory_profile/2 returns a bare snapshot list (or a badrpc).
         memory_info =
           case Benchmark.memory_profile(node, duration: 1000, interval: 500) do
-            {:ok, snapshots} -> compute_memory_stats(snapshots)
-            {:error, _} -> %{error: "Memory profile failed"}
+            snapshots when is_list(snapshots) -> compute_memory_stats(snapshots)
+            _ -> %{error: "Memory profile failed"}
           end
 
         # Get latency;
@@ -160,7 +161,7 @@ defmodule DalaDev.ClusterViz do
       apply(:cowboy, :start_clear, [port, dispatch: dispatch_rules(refresh)])
     end)
 
-    IO.puts("Dashboard available at: http://localhost:#{port}/dashboard")
+    DalaDev.Output.info("Dashboard available at: http://localhost:#{port}/dashboard")
     {:ok, :started}
   end
 
@@ -168,13 +169,13 @@ defmodule DalaDev.ClusterViz do
 
   defp get_node_info(node) do
     case Benchmark.memory_profile(node, duration: 1000, interval: 500) do
-      {:ok, snapshots} ->
+      snapshots when is_list(snapshots) ->
         %{
           memory: compute_memory_stats(snapshots),
           process_count: length(Process.list())
         }
 
-      {:error, _} ->
+      _ ->
         %{error: "Failed to get node info"}
     end
   end

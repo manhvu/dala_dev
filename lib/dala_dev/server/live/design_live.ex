@@ -5,6 +5,8 @@ defmodule DalaDev.Server.DesignLive do
   @default_zoom 100
 
   @impl true
+  @spec mount(term(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     design = %{
       nodes: []
@@ -54,6 +56,12 @@ defmodule DalaDev.Server.DesignLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
+  def handle_event("set_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :active_tab, tab)}
+  end
+
   def handle_event("add_component", %{"type" => type_str}, socket) do
     type = String.to_atom(type_str)
     design = socket.assigns.design
@@ -161,7 +169,7 @@ defmodule DalaDev.Server.DesignLive do
   defp generate_id do
     :crypto.strong_rand_bytes(8)
     |> Base.encode64()
-    |> String.replace(~r/[^A-Za-z0-9]/, "")
+    |> String.replace(DalaDev.Utils.compile_regex("[^A-Za-z0-9]"), "")
     |> String.slice(0, 8)
   end
 
@@ -301,6 +309,7 @@ defmodule DalaDev.Server.DesignLive do
   defp node_icon(_), do: "?"
 
   @impl true
+  @spec render(Phoenix.LiveView.Socket.assigns()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="design-container">
@@ -328,9 +337,9 @@ defmodule DalaDev.Server.DesignLive do
         <!-- Left Panel - Components -->
         <div class="panel components-panel">
           <div class="panel-header">
-            <button phx-click={assign(:active_tab, "components")} class={if @active_tab == "components", do: "active"}>Components</button>
-            <button phx-click={assign(:active_tab, "properties")} class={if @active_tab == "properties", do: "active"}>Properties</button>
-            <button phx-click={assign(:active_tab, "export")} class={if @active_tab == "export", do: "active"}>Export</button>
+            <button phx-click="set_tab" phx-value-tab="components" class={if @active_tab == "components", do: "active"}>Components</button>
+            <button phx-click="set_tab" phx-value-tab="properties" class={if @active_tab == "properties", do: "active"}>Properties</button>
+            <button phx-click="set_tab" phx-value-tab="export" class={if @active_tab == "export", do: "active"}>Export</button>
           </div>
 
           <div class="panel-content">
@@ -380,7 +389,6 @@ defmodule DalaDev.Server.DesignLive do
                             type="text"
                             value={value}
                             phx-debounce="300"
-                            phx-target={@myself}
                             phx-change="update_property"
                             phx-value-node_id={node.id}
                             phx-value-key={key}
@@ -468,7 +476,7 @@ defmodule DalaDev.Server.DesignLive do
             <div class="preview-canvas">
               <%= for node <- @design.nodes |> Enum.sort_by(&{&1.y, &1.x}) do %>
                 <div class="preview-node #{node.type}">
-                  <%= preview_node(node) %>
+                  <%= Phoenix.HTML.raw(preview_node(node)) %>
                 </div>
               <% end %>
             </div>

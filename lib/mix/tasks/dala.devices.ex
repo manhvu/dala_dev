@@ -32,27 +32,28 @@ defmodule Mix.Tasks.Dala.Devices do
 
   @impl Mix.Task
   def run(_args) do
+    DalaDev.Output.configure([])
     Mix.Task.run("app.config")
 
     android = list_android()
     ios = list_ios()
 
-    IO.puts("")
+    DalaDev.Output.info("")
     print_section("Android", android)
-    IO.puts("")
+    DalaDev.Output.info("")
     print_section("iOS", ios)
 
     all = device_list(android) ++ device_list(ios)
 
     if all != [] do
-      IO.puts("")
-      IO.puts("Pass the ID to --device to target a specific device:")
-      IO.puts("  mix dala.deploy --device #{Device.display_id(hd(all))}")
+      DalaDev.Output.info("")
+      DalaDev.Output.hint("Pass the ID to --device to target a specific device:")
+      DalaDev.Output.info("  mix dala.deploy --device #{Device.display_id(hd(all))}")
 
       print_bench_hints(all)
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
   end
 
   defp print_bench_hints(all) do
@@ -65,17 +66,19 @@ defmodule Mix.Tasks.Dala.Devices do
       Enum.find(all, fn d -> d.platform == :android and d.type == :physical end)
 
     if physical_ios_with_ip do
-      IO.puts("")
-      IO.puts("For an iOS battery bench, use --wifi-ip with the device IP:")
+      DalaDev.Output.info("")
+      DalaDev.Output.info("For an iOS battery bench, use --wifi-ip with the device IP:")
 
-      IO.puts("  mix dala.battery_bench_ios --no-build --wifi-ip #{physical_ios_with_ip.host_ip}")
+      DalaDev.Output.info("  mix dala.battery_bench_ios --no-build --wifi-ip #{physical_ios_with_ip.host_ip}")
     end
 
     if physical_android do
-      IO.puts("")
-      IO.puts("For an Android battery bench, target the device by serial:")
+      DalaDev.Output.info("")
+      DalaDev.Output.info("For an Android battery bench, target the device by serial:")
 
-      IO.puts("  mix dala.battery_bench_android --no-build --device #{physical_android.serial}")
+      DalaDev.Output.info(
+        "  mix dala.battery_bench_android --no-build --device #{physical_android.serial}"
+      )
     end
   end
 
@@ -104,14 +107,14 @@ defmodule Mix.Tasks.Dala.Devices do
   # ── Output ───────────────────────────────────────────────────────────────────
 
   defp print_section(title, result) do
-    IO.puts("#{IO.ANSI.cyan()}#{title}#{IO.ANSI.reset()}")
+    DalaDev.Output.step(title)
 
     case result do
       {:unavailable, reason} ->
-        IO.puts("  (#{reason})")
+        DalaDev.Output.warn("(#{reason})")
 
       {:ok, []} ->
-        IO.puts("  (none)")
+        DalaDev.Output.info("  (none)")
 
       {:ok, devices} ->
         print_table(devices)
@@ -132,18 +135,16 @@ defmodule Mix.Tasks.Dala.Devices do
       ver = pad(d.version || "", max_ver)
       type = pad(type_label(d), max_type)
 
-      id_str = Device.display_id(d)
-      id_padded = pad(id_str, max_id)
-      id = IO.ANSI.bright() <> id_padded <> IO.ANSI.reset()
+      id = pad(Device.display_id(d), max_id)
 
       ip_part =
         cond do
-          d.host_ip -> "  " <> IO.ANSI.faint() <> d.host_ip <> IO.ANSI.reset()
-          any_ip -> "  " <> IO.ANSI.faint() <> "(no IP)" <> IO.ANSI.reset()
+          d.host_ip -> "  #{d.host_ip}"
+          any_ip -> "  (no IP)"
           true -> ""
         end
 
-      IO.puts("  #{icon}  #{name}  #{ver}  #{type}  #{id}#{ip_part}")
+      DalaDev.Output.info("  #{icon}  #{name}  #{ver}  #{type}  #{id}#{ip_part}")
     end)
   end
 
@@ -169,17 +170,13 @@ defmodule Mix.Tasks.Dala.Devices do
   # ── Hints ────────────────────────────────────────────────────────────────────
 
   defp print_hints(%{status: :unauthorized}) do
-    IO.puts(
-      "    #{IO.ANSI.yellow()}→ Check device for 'Allow USB debugging?' prompt#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.warn("→ Check device for 'Allow USB debugging?' prompt")
   end
 
   defp print_hints(%{platform: :android, serial: serial}) do
     case Android.developer_mode(serial) do
       :disabled ->
-        IO.puts(
-          "    #{IO.ANSI.yellow()}→ Enable Developer Mode: Settings → About → tap Build Number 7×#{IO.ANSI.reset()}"
-        )
+        DalaDev.Output.warn("→ Enable Developer Mode: Settings → About → tap Build Number 7×")
 
       _ ->
         :ok

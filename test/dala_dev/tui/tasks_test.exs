@@ -49,13 +49,17 @@ defmodule DalaDev.Tui.TasksTest do
 
     test "all tasks have required fields" do
       tasks = Tasks.list()
+      category_keys = Enum.map(Tasks.categories(), &elem(&1, 0))
 
       Enum.each(tasks, fn task ->
-        assert is_binary(task.name)
-        assert is_atom(task.module)
-        assert is_binary(task.description)
-        assert is_atom(task.category)
-        assert is_list(task.args)
+        assert %Tasks{} = task
+        assert byte_size(task.name) > 0
+        assert byte_size(task.description) > 0
+        # each referenced module must load and be a runnable Mix task
+        assert match?({:module, _}, Code.ensure_loaded(task.module))
+        assert function_exported?(task.module, :run, 1)
+        assert task.category in category_keys
+        assert Enum.all?(task.args, &is_binary/1)
       end)
     end
 
@@ -123,8 +127,8 @@ defmodule DalaDev.Tui.TasksTest do
       categories = Tasks.categories()
 
       Enum.each(categories, fn {atom, label} ->
-        assert is_atom(atom)
-        assert is_binary(label)
+        assert byte_size(Atom.to_string(atom)) > 0
+        assert byte_size(label) > 0
       end)
     end
 
@@ -167,8 +171,9 @@ defmodule DalaDev.Tui.TasksTest do
       tasks = Tasks.list()
 
       Enum.each(tasks, fn task ->
-        # Module should be an atom
-        assert is_atom(task.module)
+        # Module should load and resolve to a runnable Mix task
+        assert match?({:module, _}, Code.ensure_loaded(task.module))
+        assert function_exported?(task.module, :run, 1)
       end)
     end
 

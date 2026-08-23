@@ -12,6 +12,9 @@ defmodule Mix.Tasks.Dala.Observer do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} =
       OptionParser.parse(args,
         switches: [port: :integer, node: :string, name: :string, cookie: :string],
@@ -35,15 +38,15 @@ defmodule Mix.Tasks.Dala.Observer do
       target = target_node |> to_string() |> String.to_atom()
 
       case Node.connect(target) do
-        true -> Mix.shell().info("Connected to #{target}")
-        false -> Mix.shell().error("Failed to connect to #{target}")
+        true -> DalaDev.Output.success("Connected to #{target}")
+        false -> DalaDev.Output.error("Failed to connect to #{target}")
       end
     end
 
-    Mix.shell().info("Starting Dala Observer on http://localhost:#{port}/observer")
+    DalaDev.Output.info("Starting Dala Observer on http://localhost:#{port}/observer")
 
     if target_node do
-      Mix.shell().info("Initially observing: #{target_node}")
+      DalaDev.Output.info("Initially observing: #{target_node}")
     end
 
     Application.put_env(:dala_dev, DalaDev.Server.Endpoint,

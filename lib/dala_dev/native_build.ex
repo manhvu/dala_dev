@@ -23,7 +23,7 @@ defmodule DalaDev.NativeBuild do
   """
   @spec build_all(keyword()) :: [:ok | {:error, term()}]
   def build_all(opts \\ []) do
-    cfg = load_config()
+    cfg = load_config(File.cwd!())
     platforms = Keyword.get(opts, :platforms, [:android, :ios])
     device_id = Keyword.get(opts, :device, nil)
     release = Keyword.get(opts, :release, false)
@@ -69,38 +69,40 @@ defmodule DalaDev.NativeBuild do
               nil
           end
 
-        cond do
-          not ios_toolchain_available?() ->
-            warn_skipped_ios()
-            results
+        # --all fans out to every available iOS target instead of letting the
+        # physical-device branch win silently (docs/reference/issues.md #5).
+        targets =
+          ios_build_targets(%{
+            toolchain: ios_toolchain_available?(),
+            sim_script: File.exists?("ios/build.sh"),
+            physical_udid: physical_udid,
+            all_devices: Keyword.get(opts, :all_devices, false)
+          })
 
-          physical_udid ->
-            [build_ios_physical(cfg, physical_udid) | results]
-
-          File.exists?("ios/build.sh") ->
-            [build_ios(cfg) | results]
-
-          true ->
-            results
+        if targets == [] and not ios_toolchain_available?() do
+          warn_skipped_ios()
         end
+
+        Enum.reduce(targets, results, fn
+          :physical, acc -> [build_ios_physical(cfg, physical_udid) | acc]
+          :sim, acc -> [build_ios(cfg) | acc]
+        end)
       else
         results
       end
 
     if results == [] do
-      IO.puts(
-        "  #{IO.ANSI.yellow()}No native build targets found (missing android/ or ios/build.sh, or toolchains)#{IO.ANSI.reset()}"
+      DalaDev.Output.warn(
+        "  No native build targets found (missing android/ or ios/build.sh, or toolchains)"
       )
     end
 
     Enum.each(results, fn
       {:ok, platform} ->
-        IO.puts("  #{IO.ANSI.green()}✓ #{platform} native build complete#{IO.ANSI.reset()}")
+        DalaDev.Output.success("  ✓ #{platform} native build complete")
 
       {:error, platform, reason} ->
-        IO.puts(
-          "  #{IO.ANSI.red()}✗ #{platform} native build failed: #{reason}#{IO.ANSI.reset()}"
-        )
+        DalaDev.Output.error("  ✗ #{platform} native build failed: #{reason}")
     end)
 
     ok_count = Enum.count(results, &match?({:ok, _}, &1))
@@ -110,7 +112,7 @@ defmodule DalaDev.NativeBuild do
   # ── Android ──────────────────────────────────────────────────────────────────
 
   defp build_android(cfg, device_id) do
-    IO.puts("  Building Android APK (debug)...")
+    DalaDev.Output.info("  Building Android APK (debug)...")
     bundle_id = cfg[:bundle_id] || DalaDev.Config.bundle_id()
     apk = "android/app/build/outputs/apk/debug/app-debug.apk"
 
@@ -135,7 +137,7 @@ defmodule DalaDev.NativeBuild do
   end
 
   defp build_android_release(cfg) do
-    IO.puts("  Building Android App Bundle (release)...")
+    DalaDev.Output.info("  Building Android App Bundle (release)...")
     _bundle_id = cfg[:bundle_id] || DalaDev.Config.bundle_id()
     aab = "android/app/build/outputs/bundle/release/app-release.aab"
 
@@ -146,8 +148,8 @@ defmodule DalaDev.NativeBuild do
          :ok <- gradle_bundle_release() do
       if File.exists?(aab) do
         size = File.stat!(aab).size
-        IO.puts("  AAB: #{aab}")
-        IO.puts("  Size: #{format_size(size)}")
+        DalaDev.Output.info("  AAB: #{aab}")
+        DalaDev.Output.info("  Size: #{format_size(size)}")
         {:ok, "Android (release)"}
       else
         {:error, "AAB not found at #{aab}. Build may have failed."}
@@ -199,14 +201,14 @@ defmodule DalaDev.NativeBuild do
   end
 
   defp gradle_build(:debug) do
-    IO.puts("  Running Gradle assembleDebug...")
-    IO.puts("  (first build may take a few minutes while CMake compiles native code)")
+    DalaDev.Output.info("  Running Gradle assembleDebug...")
+    DalaDev.Output.info("  (first build may take a few minutes while CMake compiles native code)")
     run_gradle("assembleDebug")
   end
 
   defp gradle_build(:release) do
-    IO.puts("  Running Gradle bundleRelease...")
-    IO.puts("  (first build may take a few minutes while CMake compiles native code)")
+    DalaDev.Output.info("  Running Gradle bundleRelease...")
+    DalaDev.Output.info("  (first build may take a few minutes while CMake compiles native code)")
     apply_release_signing_config()
     run_gradle("bundleRelease")
   end
@@ -252,7 +254,7 @@ defmodule DalaDev.NativeBuild do
   end
 
   defp apply_release_signing_config do
-    cfg = load_config()
+    cfg = load_config(File.cwd!())
     signing = cfg[:android_signing]
 
     if signing do
@@ -262,9 +264,7 @@ defmodule DalaDev.NativeBuild do
       key_password = signing[:key_password]
 
       unless File.exists?(store_file) do
-        IO.puts(
-          "#{IO.ANSI.yellow()}Warning: Keystore not found at #{store_file}#{IO.ANSI.reset()}"
-        )
+        DalaDev.Output.warn("Warning: Keystore not found at #{store_file}")
       end
 
       # Write signing config to gradle.properties for the build
@@ -288,19 +288,19 @@ defmodule DalaDev.NativeBuild do
 
       File.write!(props_path, props <> signing_block)
     else
-      IO.puts(
-        "#{IO.ANSI.yellow()}Warning: No android_signing config in dala.exs. Release build will use debug signing.#{IO.ANSI.reset()}"
+      DalaDev.Output.warn(
+        "Warning: No android_signing config in dala.exs. Release build will use debug signing."
       )
 
-      IO.puts("  Add to dala.exs:")
-      IO.puts("")
-      IO.puts("    config :dala_dev,")
-      IO.puts("      android_signing: [")
-      IO.puts("        store_file: \"~/.android/keystore.jks\",")
-      IO.puts("        store_password: \"your_password\",")
-      IO.puts("        key_alias: \"your_alias\",")
-      IO.puts("        key_password: \"your_password\"")
-      IO.puts("      ]")
+      DalaDev.Output.info("  Add to dala.exs:")
+      DalaDev.Output.info("")
+      DalaDev.Output.info("    config :dala_dev,")
+      DalaDev.Output.info("      android_signing: [")
+      DalaDev.Output.info("        store_file: \"~/.android/keystore.jks\",")
+      DalaDev.Output.info("        store_password: \"your_password\",")
+      DalaDev.Output.info("        key_alias: \"your_alias\",")
+      DalaDev.Output.info("        key_password: \"your_password\"")
+      DalaDev.Output.info("      ]")
     end
   end
 
@@ -337,7 +337,7 @@ defmodule DalaDev.NativeBuild do
           |> filter_serials(device_id)
 
         Enum.each(serials, fn serial ->
-          IO.puts("  Installing APK on #{serial}...")
+          DalaDev.Output.info("  Installing APK on #{serial}...")
 
           System.cmd("adb", ["-s", serial, "shell", "am", "force-stop", bundle_id],
             stderr_to_stdout: true
@@ -354,11 +354,9 @@ defmodule DalaDev.NativeBuild do
               |> String.split("\n")
               |> Enum.find(&String.contains?(&1, "INSTALL_FAILED")) || String.trim(install_out)
 
-            IO.puts(
-              "  #{IO.ANSI.yellow()}⚠  #{serial}: APK install failed — #{reason}#{IO.ANSI.reset()}"
-            )
+            DalaDev.Output.warn("  ⚠  #{serial}: APK install failed — #{reason}")
 
-            IO.puts("     (OTP push will be skipped for this device)")
+            DalaDev.Output.info("     (OTP push will be skipped for this device)")
           else
             fix_erts_helper_labels(serial, bundle_id)
           end
@@ -406,12 +404,12 @@ defmodule DalaDev.NativeBuild do
   defp push_otp_release_android(bundle_id, elixir_lib, otp_arm64, otp_arm32, device_id) do
     app_data = "/data/data/#{bundle_id}/files"
 
-    IO.puts("  Pushing OTP release to device(s)...")
+    DalaDev.Output.info("  Pushing OTP release to device(s)...")
 
     case System.cmd("adb", ["devices"], stderr_to_stdout: true) do
       {output, 0} ->
         serials = parse_adb_serials(output) |> filter_serials(device_id)
-        if serials == [], do: IO.puts("  (no devices connected, skipping OTP push)")
+        if serials == [], do: DalaDev.Output.info("  (no devices connected, skipping OTP push)")
 
         Enum.reduce_while(serials, :ok, fn serial, _ ->
           otp_dir = device_otp_dir(serial, otp_arm64, otp_arm32)
@@ -455,9 +453,7 @@ defmodule DalaDev.NativeBuild do
     {pm_out, _} = adb.(["shell", "pm", "list", "packages", bundle_id])
 
     unless String.contains?(pm_out, "package:#{bundle_id}") do
-      IO.puts(
-        "  #{IO.ANSI.yellow()}⚠  #{serial}: #{bundle_id} not installed — skipping OTP push#{IO.ANSI.reset()}"
-      )
+      DalaDev.Output.warn("  ⚠  #{serial}: #{bundle_id} not installed — skipping OTP push")
 
       throw({:skip, serial})
     end
@@ -610,9 +606,7 @@ defmodule DalaDev.NativeBuild do
       end)
 
     if matches == [] do
-      IO.puts(
-        "  #{IO.ANSI.yellow()}⚠  --device #{id} matched no connected adb device — skipping#{IO.ANSI.reset()}"
-      )
+      DalaDev.Output.warn("  ⚠  --device #{id} matched no connected adb device — skipping")
     end
 
     matches
@@ -631,7 +625,7 @@ defmodule DalaDev.NativeBuild do
     with :ok <- check_path(cfg[:dala_dir], "dala_dir"),
          :ok <- check_path(cfg[:elixir_lib], "elixir_lib"),
          {:ok, otp_root} <- DalaDev.OtpDownloader.ensure_ios_sim() do
-      IO.puts("  Building iOS simulator app...")
+      DalaDev.Output.info("  Building iOS simulator app...")
 
       env = [
         {"DALA_DIR", Path.expand(cfg[:dala_dir])},
@@ -666,7 +660,7 @@ defmodule DalaDev.NativeBuild do
   #                        Defaults to the iOS-device OTP cache, which ships
   #                        these files starting with the post-(c) tarball.
   defp build_ios_physical(cfg, udid) do
-    IO.puts("  Building iOS app for physical device #{udid}...")
+    DalaDev.Output.info("  Building iOS app for physical device #{udid}...")
 
     with {:ok, cfg} <- check_device_signing_config(cfg),
          {:ok, otp_root} <- DalaDev.OtpDownloader.ensure_ios_device() do
@@ -738,9 +732,7 @@ defmodule DalaDev.NativeBuild do
              """}
 
           [identity] ->
-            IO.puts(
-              "  #{IO.ANSI.cyan()}Auto-detected signing identity: #{identity}#{IO.ANSI.reset()}"
-            )
+            DalaDev.Output.info("  Auto-detected signing identity: #{identity}")
 
             {:ok, identity}
 
@@ -823,14 +815,14 @@ defmodule DalaDev.NativeBuild do
 
       [{found_uuid, app_id, team}] ->
         unless is_binary(uuid) do
-          IO.puts(
-            "  #{IO.ANSI.cyan()}Auto-detected provisioning profile: #{found_uuid} (team #{team})#{IO.ANSI.reset()}"
+          DalaDev.Output.info(
+            "  Auto-detected provisioning profile: #{found_uuid} (team #{team})"
           )
         end
 
         if String.ends_with?(app_id, ".*") do
-          IO.puts(
-            "  #{IO.ANSI.cyan()}  (using wildcard profile — run `mix dala.provision` to create a dedicated profile for #{bundle_id})#{IO.ANSI.reset()}"
+          DalaDev.Output.info(
+            "    (using wildcard profile — run `mix dala.provision` to create a dedicated profile for #{bundle_id})"
           )
         end
 
@@ -1421,15 +1413,13 @@ defmodule DalaDev.NativeBuild do
 
       case physical do
         [device] ->
-          IO.puts(
-            "  #{IO.ANSI.cyan()}Auto-detected physical device: #{device.name || device.serial}#{IO.ANSI.reset()}"
-          )
+          DalaDev.Output.info("  Auto-detected physical device: #{device.name || device.serial}")
 
           device.serial
 
         [_ | _] ->
-          IO.puts(
-            "  #{IO.ANSI.yellow()}Multiple physical devices connected — use --device <id> to pick one. Building for simulator.#{IO.ANSI.reset()}"
+          DalaDev.Output.warn(
+            "  Multiple physical devices connected — use --device <id> to pick one. Building for simulator."
           )
 
           nil
@@ -1488,11 +1478,42 @@ defmodule DalaDev.NativeBuild do
     end
   end
 
-  # iOS device UDID format regexes — pre-compiled so we don't pay
-  # `Regex.compile!/1` per call (and avoid OTP 28's "regex re-compiled
-  # at runtime" warning).
-  @ios_udid_long ~r/^[0-9A-Fa-f]{40}$/
-  @ios_udid_short ~r/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$/
+  @doc false
+  @spec ios_build_targets(%{
+          toolchain: boolean(),
+          sim_script: boolean(),
+          physical_udid: String.t() | nil,
+          all_devices: boolean()
+        }) :: [:physical | :sim]
+  def ios_build_targets(%{
+        toolchain: toolchain,
+        sim_script: sim_script,
+        physical_udid: physical_udid,
+        all_devices: all_devices
+      }) do
+    cond do
+      not toolchain ->
+        []
+
+      is_binary(physical_udid) and all_devices ->
+        if sim_script, do: [:physical, :sim], else: [:physical]
+
+      is_binary(physical_udid) ->
+        [:physical]
+
+      sim_script ->
+        [:sim]
+
+      true ->
+        []
+    end
+  end
+
+  # iOS device UDID format regexes — compiled at module-attribute expansion
+  # time via `DalaDev.Utils.compile_regex/2`   # time via `DalaDev.Utils.compile_regex/2` (compile-time regex sigil literals
+  # are unsafe on Elixir 1.19 / OTP 28.0+).
+  @ios_udid_long DalaDev.Utils.compile_regex("^[0-9A-Fa-f]{40}$")
+  @ios_udid_short DalaDev.Utils.compile_regex("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$")
 
   # True when `id` matches *any* iOS device (sim or physical) in the
   # given `devices` list, OR matches an offline physical-UDID format.
@@ -1590,52 +1611,56 @@ defmodule DalaDev.NativeBuild do
   defp macos?, do: match?({:unix, :darwin}, :os.type())
 
   defp warn_skipped_android do
-    IO.puts(
-      "  #{IO.ANSI.yellow()}⚠  Skipping Android build — toolchain not detected#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.warn("  ⚠  Skipping Android build — toolchain not detected")
 
     cond do
       not adb_available?() ->
-        IO.puts("     `adb` not found on PATH. Install Android Studio (it bundles")
-        IO.puts("     adb) or platform-tools, then re-run.")
+        DalaDev.Output.info("     `adb` not found on PATH. Install Android Studio (it bundles")
+        DalaDev.Output.info("     adb) or platform-tools, then re-run.")
 
       not File.exists?(Path.join(["android", "local.properties"])) ->
-        IO.puts("     android/local.properties is missing. Run `mix dala.install`")
-        IO.puts("     to generate it (auto-detects ANDROID_HOME / Android Studio).")
+        DalaDev.Output.info("     android/local.properties is missing. Run `mix dala.install`")
+        DalaDev.Output.info("     to generate it (auto-detects ANDROID_HOME / Android Studio).")
 
       true ->
-        IO.puts("     android/local.properties has no `sdk.dir` set. Either:")
-        IO.puts("       export ANDROID_HOME=/path/to/android/sdk && mix dala.install")
-        IO.puts("     or edit android/local.properties and add a sdk.dir= line.")
+        DalaDev.Output.info("     android/local.properties has no `sdk.dir` set. Either:")
+        DalaDev.Output.info("       export ANDROID_HOME=/path/to/android/sdk && mix dala.install")
+        DalaDev.Output.info("     or edit android/local.properties and add a sdk.dir= line.")
     end
   end
 
   defp warn_skipped_ios do
-    IO.puts(
-      "  #{IO.ANSI.yellow()}⚠  Skipping iOS build — Xcode command-line tools not detected#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.warn("  ⚠  Skipping iOS build — Xcode command-line tools not detected")
 
     if macos?() do
-      IO.puts("     Install Xcode and run `xcode-select --install`, then re-run.")
+      DalaDev.Output.info("     Install Xcode and run `xcode-select --install`, then re-run.")
     else
-      IO.puts("     iOS builds require macOS.")
+      DalaDev.Output.info("     iOS builds require macOS.")
     end
   end
 
   # ── Config ───────────────────────────────────────────────────────────────────
 
   @doc false
-  def __load_config__, do: load_config()
+  @spec __load_config__() :: keyword()
+  def __load_config__, do: load_config(File.cwd!())
 
   @doc false
+  # Test seam: same as `__load_config__/0` but reads config from an explicit
+  # project directory, so tests don't have to mutate the VM-global CWD.
+  @spec __load_config_in__(String.t()) :: keyword()
+  def __load_config_in__(project_dir), do: load_config(project_dir)
+
+  @doc false
+  @spec __resolve_elixir_lib__(term()) :: String.t()
   def __resolve_elixir_lib__(configured), do: resolve_elixir_lib(configured)
 
-  defp load_config do
-    config_file = Path.join(File.cwd!(), "dala.exs")
+  defp load_config(project_dir) do
+    config_file = Path.join(project_dir, "dala.exs")
 
     unless File.exists?(config_file) do
       Mix.raise("""
-      dala.exs not found in #{File.cwd!()}.
+      dala.exs not found in #{project_dir}.
 
       Run `mix dala.install` to configure your project, or
       `mix dala.doctor` to diagnose your environment.

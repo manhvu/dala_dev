@@ -15,6 +15,9 @@ defmodule DalaDev.Server.ClusterVizLive do
 
   @refresh_interval 5_000
 
+  @impl true
+  @spec mount(term(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(@refresh_interval, self(), :refresh)
@@ -31,14 +34,22 @@ defmodule DalaDev.Server.ClusterVizLive do
     {:ok, fetch_all(socket)}
   end
 
+  @impl true
+  @spec handle_info(term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_info(:refresh, socket) do
     {:noreply, fetch_all(socket)}
   end
 
+  @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("refresh", _params, socket) do
     {:noreply, fetch_all(socket)}
   end
 
+  @impl true
+  @spec render(Phoenix.LiveView.Socket.assigns()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="p-6 max-w-7xl mx-auto">

@@ -69,7 +69,8 @@ defmodule DalaDev.Tui.Views.NavPanel do
   defp format_remote(%Remote{} = remote) do
     status = if remote.error, do: "❌", else: "🟢"
     version = if remote.version, do: " v#{remote.version}", else: ""
-    latency = if remote.latency_ms, do: " (#{Float.round(remote.latency_ms, 0)}ms)", else: ""
+    latency =
+      if remote.latency_ms, do: " (#{remote.latency_ms |> Float.round(0) |> trunc()}ms)", else: ""
     "#{status} #{remote.node}#{version}#{latency}"
   end
 
@@ -109,6 +110,7 @@ defmodule DalaDev.Tui.Views.NavPanel do
 
   defp nav_title(%State{current_tab: :debug, remotes: remotes}) do
     connected = Enum.count(remotes, &(&1.error == nil))
+
     %Line{
       spans: [
         %Span{content: " Debug ", style: %Style{fg: Theme.cornflower(), modifiers: [:bold]}},

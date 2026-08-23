@@ -108,6 +108,9 @@ defmodule Mix.Tasks.Dala.Connect do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} =
       OptionParser.parse(args,
         switches: [iex: :boolean, cookie: :string, name: :string],
@@ -123,12 +126,13 @@ defmodule Mix.Tasks.Dala.Connect do
     {connected, _failed} = DalaDev.Connector.connect_all(cookie: cookie)
 
     if connected == [] do
-      IO.puts("\n#{IO.ANSI.yellow()}No nodes connected. Nothing to do.#{IO.ANSI.reset()}\n")
-      IO.puts("Try: mix dala.devices   to diagnose connection issues")
+      DalaDev.Output.warn("No nodes connected. Nothing to do.")
+      DalaDev.Output.hint("Try: mix dala.devices   to diagnose connection issues")
     else
       if no_iex do
-        IO.puts("\nNodes ready:")
-        Enum.each(connected, fn d -> IO.puts("  #{d.node}") end)
+        DalaDev.Output.info("Nodes ready:")
+
+        Enum.each(connected, fn d -> DalaDev.Output.info("  #{d.node}") end)
       else
         start_iex(connected, cookie, local_name)
       end
@@ -136,13 +140,11 @@ defmodule Mix.Tasks.Dala.Connect do
   end
 
   defp start_iex(connected, cookie, local_name) do
-    IO.puts(
-      "\n#{IO.ANSI.cyan()}Starting IEx (connected to #{length(connected)} device(s))...#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.step("Starting IEx (connected to #{length(connected)} device(s))")
 
-    IO.puts("  Node.list()       — see connected nodes")
-    IO.puts("  nl(MyModule)      — hot-push code to all nodes")
-    IO.puts("")
+    DalaDev.Output.info("Node.list()       — see connected nodes")
+    DalaDev.Output.info("nl(MyModule)      — hot-push code to all nodes")
+    DalaDev.Output.info("")
 
     # Start distribution on the local node and connect to all devices.
     unless Node.alive?() do

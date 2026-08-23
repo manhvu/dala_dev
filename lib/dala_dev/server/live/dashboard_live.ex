@@ -469,7 +469,7 @@ defmodule DalaDev.Server.DashboardLive do
               <%= device.name || short_serial(device.serial) %>
             </button>
           </div>
-          <form phx-change="set_text_filter" class="flex items-center gap-1">
+          <form id="text-filter-form" phx-change="set_text_filter" class="flex items-center gap-1">
             <input
               type="text"
               name="text_filter"
@@ -529,7 +529,7 @@ defmodule DalaDev.Server.DashboardLive do
       <div class="flex flex-col w-96 shrink-0 min-h-0 pl-3">
         <div class="flex items-center gap-2 mb-2 shrink-0 flex-wrap">
           <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider">Elixir</span>
-          <form phx-change="set_elixir_text_filter" class="flex items-center gap-1">
+          <form id="elixir-text-filter-form" phx-change="set_elixir_text_filter" class="flex items-center gap-1">
             <input
               type="text"
               name="elixir_text_filter"

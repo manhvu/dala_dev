@@ -8,51 +8,41 @@ defmodule DalaDev.ObserverTest do
     test "returns system info for local node" do
       assert {:ok, data} = Observer.observe(Node.self())
       assert data[:node] == Node.self()
-      assert data[:system] != nil
-      assert data[:system][:memory] != nil
-      assert data[:system][:process_count] != nil
-      assert data[:timestamp] != nil
+
+      assert %{memory: %{total: mem_total}, process_count: process_count} = data.system
+      assert mem_total > 0
+      assert is_integer(process_count) and process_count > 0
+
+      assert %DateTime{} = data[:timestamp]
     end
 
     test "returns process list" do
-      assert {:ok, data} = Observer.observe(Node.self())
-      assert is_list(data[:processes])
-      assert length(data[:processes]) > 0
+      assert {:ok, %{processes: [proc | _]}} = Observer.observe(Node.self())
 
       # Check process info structure
-      if length(data[:processes]) > 0 do
-        proc = List.first(data[:processes])
-        assert Map.has_key?(proc, :pid)
-        assert Map.has_key?(proc, :memory)
-        assert Map.has_key?(proc, :reductions)
-        assert Map.has_key?(proc, :message_queue_len)
-        assert Map.has_key?(proc, :current_function)
-        assert Map.has_key?(proc, :status)
-      end
+      assert Map.has_key?(proc, :pid)
+      assert Map.has_key?(proc, :memory)
+      assert Map.has_key?(proc, :reductions)
+      assert Map.has_key?(proc, :message_queue_len)
+      assert Map.has_key?(proc, :current_function)
+      assert Map.has_key?(proc, :status)
     end
 
     test "returns ETS tables" do
-      assert {:ok, data} = Observer.observe(Node.self())
-      assert is_list(data[:ets_tables])
+      assert {:ok, %{ets_tables: [table | _]}} = Observer.observe(Node.self())
 
       # Check ETS table structure
-      if length(data[:ets_tables]) > 0 do
-        table = List.first(data[:ets_tables])
-        assert Map.has_key?(table, :id)
-        assert Map.has_key?(table, :name)
-        assert Map.has_key?(table, :type)
-        assert Map.has_key?(table, :size)
-        assert Map.has_key?(table, :memory)
-      end
+      assert Map.has_key?(table, :id)
+      assert Map.has_key?(table, :name)
+      assert Map.has_key?(table, :type)
+      assert Map.has_key?(table, :size)
+      assert Map.has_key?(table, :memory)
     end
 
     test "returns applications list" do
-      assert {:ok, data} = Observer.observe(Node.self())
-      assert is_list(data[:applications])
-      assert length(data[:applications]) > 0
+      assert {:ok, %{applications: [app | _]}} = Observer.observe(Node.self())
 
       # Check application structure
-      app = List.first(data[:applications])
       assert Map.has_key?(app, :name)
       assert Map.has_key?(app, :description)
       assert Map.has_key?(app, :version)
@@ -60,46 +50,45 @@ defmodule DalaDev.ObserverTest do
 
     test "returns modules info" do
       assert {:ok, data} = Observer.observe(Node.self())
-      assert data[:modules] != nil
-      assert Map.has_key?(data[:modules], :count)
-      assert Map.has_key?(data[:modules], :total_memory)
+      assert %{count: count, total_memory: _} = data.modules
+      assert is_integer(count) and count > 0
     end
 
     test "returns ports info" do
-      assert {:ok, data} = Observer.observe(Node.self())
-      assert is_list(data[:ports])
-
-      # Check port structure if any ports exist
-      if length(data[:ports]) > 0 do
-        port = List.first(data[:ports])
-        assert Map.has_key?(port, :id)
-        assert Map.has_key?(port, :name)
-      end
+      assert {:ok, %{ports: [port | _]}} = Observer.observe(Node.self())
+      assert Map.has_key?(port, :id)
+      assert Map.has_key?(port, :name)
     end
 
     test "returns load info" do
       assert {:ok, data} = Observer.observe(Node.self())
-      assert data[:load] != nil
-      assert Map.has_key?(data[:load], :io)
+      assert %{io: _, scheduler_usage: _} = data.load
     end
   end
 
   describe "system_info/2" do
     test "returns system information" do
       info = Observer.system_info(Node.self())
-      assert info[:memory] != nil
-      assert info[:system_version] != nil
-      assert info[:uptime_ms] != nil
-      assert info[:process_count] != nil
-      assert info[:ets_tables_count] != nil
+
+      assert %{
+               memory: %{total: total},
+               uptime_ms: uptime_ms,
+               process_count: process_count,
+               ets_tables_count: ets_count
+             } = info
+
+      assert total > 0
+      assert uptime_ms >= 0
+      assert is_integer(process_count) and process_count > 0
+      assert is_integer(ets_count) and ets_count >= 0
+      assert info.system_version =~ "OTP"
     end
   end
 
   describe "process_list/2" do
     test "returns list of processes" do
       processes = Observer.process_list(Node.self())
-      assert is_list(processes)
-      assert length(processes) > 0
+      assert [_ | _] = processes
     end
 
     test "processes are sorted by memory descending" do
@@ -112,7 +101,7 @@ defmodule DalaDev.ObserverTest do
   describe "ets_tables/2" do
     test "returns list of ETS tables" do
       tables = Observer.ets_tables(Node.self())
-      assert is_list(tables)
+      assert [_ | _] = tables
     end
 
     test "ETS tables are sorted by memory descending" do

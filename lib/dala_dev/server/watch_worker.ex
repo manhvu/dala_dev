@@ -49,11 +49,14 @@ defmodule DalaDev.Server.WatchWorker do
   # ── GenServer ────────────────────────────────────────────────────────────────
 
   @impl GenServer
+  @spec init(term()) :: {:ok, map()}
   def init(:ok) do
     {:ok, %{watching: false, sources: %{}, nodes: [], timer: nil, last_push: nil}}
   end
 
   @impl GenServer
+  @spec handle_call(:start | :stop | :status, GenServer.from(), map()) ::
+          {:reply, :ok | :already_watching | map(), map()}
   def handle_call(:start, _from, %{watching: true} = state) do
     {:reply, :already_watching, state}
   end
@@ -80,6 +83,7 @@ defmodule DalaDev.Server.WatchWorker do
   end
 
   @impl GenServer
+  @spec handle_info(:tick, map()) :: {:noreply, map()}
   def handle_info(:tick, %{watching: false} = state), do: {:noreply, state}
 
   def handle_info(:tick, state) do

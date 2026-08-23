@@ -58,7 +58,7 @@ defmodule DalaDev.FileTransfer do
     else
       Enum.map(devices, fn device ->
         label = device.name || device.serial
-        IO.write("  #{label}  ->  pushing #{Path.basename(local_path)}...")
+        prefix = "  #{label}  ->  pushing #{Path.basename(local_path)}..."
 
         result =
           dispatch_push(device, local_path, remote_path,
@@ -67,8 +67,8 @@ defmodule DalaDev.FileTransfer do
           )
 
         case result do
-          {:ok, msg} -> IO.puts(" #{IO.ANSI.green()}OK#{IO.ANSI.reset()} #{msg}")
-          {:error, reason} -> IO.puts(" #{IO.ANSI.red()}FAIL#{IO.ANSI.reset()} #{reason}")
+          {:ok, msg} -> DalaDev.Output.info("#{prefix} OK #{msg}")
+          {:error, reason} -> DalaDev.Output.error("#{prefix} FAIL #{reason}")
         end
 
         result
@@ -97,7 +97,7 @@ defmodule DalaDev.FileTransfer do
     else
       Enum.map(devices, fn device ->
         label = device.name || device.serial
-        IO.write("  #{label}  <-  pulling #{Path.basename(remote_path)}...")
+        prefix = "  #{label}  <-  pulling #{Path.basename(remote_path)}..."
 
         result =
           dispatch_pull(device, remote_path, local_path,
@@ -106,8 +106,8 @@ defmodule DalaDev.FileTransfer do
           )
 
         case result do
-          {:ok, msg} -> IO.puts(" #{IO.ANSI.green()}OK#{IO.ANSI.reset()} #{msg}")
-          {:error, reason} -> IO.puts(" #{IO.ANSI.red()}FAIL#{IO.ANSI.reset()} #{reason}")
+          {:ok, msg} -> DalaDev.Output.info("#{prefix} OK #{msg}")
+          {:error, reason} -> DalaDev.Output.error("#{prefix} FAIL #{reason}")
         end
 
         result
@@ -143,7 +143,10 @@ defmodule DalaDev.FileTransfer do
     else
       Enum.map(devices, fn device ->
         label = device.name || device.serial
-        IO.puts("  #{label}  syncing #{Path.basename(local_path)} <-> #{remote_path}...")
+
+        DalaDev.Output.info(
+          "  #{label}  syncing #{Path.basename(local_path)} <-> #{remote_path}..."
+        )
 
         result =
           dispatch_sync(device, local_path, remote_path,
@@ -158,7 +161,7 @@ defmodule DalaDev.FileTransfer do
             {:ok, actions}
 
           {:error, reason} ->
-            IO.puts("    #{IO.ANSI.red()}FAIL: #{reason}#{IO.ANSI.reset()}")
+            DalaDev.Output.error("    FAIL: #{reason}")
             {:error, reason}
         end
       end)
@@ -188,8 +191,8 @@ defmodule DalaDev.FileTransfer do
   defp discover_devices(device_id) do
     case Enum.filter(discover_devices(nil), &Device.match_id?(&1, device_id)) do
       [] ->
-        Mix.shell().error("No device matched \"#{device_id}\".")
-        Mix.shell().error("Run `mix dala.devices` to see available device IDs.")
+        DalaDev.Output.error("No device matched \"#{device_id}\".")
+        DalaDev.Output.hint("Run `mix dala.devices` to see available device IDs.")
         []
 
       matched ->
@@ -258,6 +261,6 @@ defmodule DalaDev.FileTransfer do
     parts = if pull > 0, do: ["#{pull} pulled" | parts], else: parts
     parts = if delete > 0, do: ["#{delete} deleted" | parts], else: parts
     summary = if parts == [], do: "already in sync", else: Enum.join(parts, ", ")
-    IO.puts("    #{prefix}#{summary}")
+    DalaDev.Output.info("    #{prefix}#{summary}")
   end
 end

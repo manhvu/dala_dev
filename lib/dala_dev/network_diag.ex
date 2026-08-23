@@ -181,15 +181,16 @@ defmodule DalaDev.NetworkDiag do
   end
 
   @doc false
+  @spec get_interfaces_local() :: {:ok, map()} | {:error, term()}
   def get_interfaces_local do
     case :inet.getif() do
       {:ok, ifaces} ->
         interfaces =
           Enum.map(ifaces, fn {ip, broadcast, mask} ->
             %{
-              ip: :inet.ntoa(ip) |> to_string(),
-              broadcast: :inet.ntoa(broadcast) |> to_string(),
-              mask: :inet.ntoa(mask) |> to_string(),
+              ip: ntoa(ip),
+              broadcast: ntoa(broadcast),
+              mask: ntoa(mask),
               is_loopback: match?({127, _, _, _}, ip)
             }
           end)
@@ -198,6 +199,15 @@ defmodule DalaDev.NetworkDiag do
 
       error ->
         {:error, error}
+    end
+  end
+
+  # Broadcast may be :undefined for point-to-point interfaces; :inet.ntoa/1
+  # returns {:error, _} for non-IP values.
+  defp ntoa(ip) do
+    case :inet.ntoa(ip) do
+      {:error, _} -> nil
+      addr -> to_string(addr)
     end
   end
 

@@ -177,13 +177,23 @@ defmodule DalaDev.Tui.StateTest do
     test "enter selects device" do
       state = State.new(sample_devices(), [], [])
       state = State.handle_key(state, "enter")
-      assert state.selected_device != nil
-      assert state.selected_device.id == "device-1"
+      assert %Devices{id: "device-1"} = state.selected_device
     end
 
     test "enter on tasks tab switches to output" do
       state = State.new([], Tasks.list())
       state = %{state | current_tab: :tasks}
+
+      # Move selection onto an actual task (index 0 may be a category header)
+      items = State.nav_items(state)
+
+      task_idx =
+        Enum.find_index(items, fn
+          {:task, _} -> true
+          _ -> false
+        end)
+
+      state = %{state | nav_selected: task_idx || 0}
       state = State.handle_key(state, "enter")
       assert state.current_tab == :output
     end
@@ -192,8 +202,7 @@ defmodule DalaDev.Tui.StateTest do
       state = State.new([], [], sample_remotes())
       state = %{state | current_tab: :debug}
       state = State.handle_key(state, "enter")
-      assert state.selected_remote != nil
-      assert state.selected_remote.node == :demo@localhost
+      assert %Remote{node: :demo@localhost} = state.selected_remote
     end
 
     test "r sets refreshing flag" do
@@ -290,7 +299,7 @@ defmodule DalaDev.Tui.StateTest do
       state = State.new(sample_devices(), [], [])
       items = State.detail_items(state)
       assert length(items) > 0
-      assert is_binary(hd(items))
+      assert hd(items) =~ "Pixel 7"
     end
 
     test "returns remote detail lines" do
@@ -344,6 +353,7 @@ defmodule DalaDev.Tui.StateTest do
         version: "14",
         node: :demo@localhost
       }
+
       state = State.new([device], [], [])
       items = State.detail_items(state)
       assert Enum.any?(items, &String.contains?(&1, "demo@localhost"))
@@ -366,6 +376,7 @@ defmodule DalaDev.Tui.StateTest do
         version: "14",
         dist_port: 9100
       }
+
       state = State.new([device], [], [])
       items = State.detail_items(state)
       assert Enum.any?(items, &String.contains?(&1, "9100"))
@@ -409,6 +420,7 @@ defmodule DalaDev.Tui.StateTest do
         version: "0.8.0",
         current_screen: "HomeScreen"
       }
+
       state = State.new([], [], [remote])
       state = %{state | current_tab: :debug, selected_remote: remote}
       items = State.detail_items(state)
@@ -421,6 +433,7 @@ defmodule DalaDev.Tui.StateTest do
         version: "0.8.0",
         assigns: %{user: "John", theme: "dark"}
       }
+
       state = State.new([], [], [remote])
       state = %{state | current_tab: :debug, selected_remote: remote}
       items = State.detail_items(state)
@@ -434,6 +447,7 @@ defmodule DalaDev.Tui.StateTest do
         version: "0.8.0",
         memory: %{total: 50_000_000, processes: 12_000_000}
       }
+
       state = State.new([], [], [remote])
       state = %{state | current_tab: :debug, selected_remote: remote}
       items = State.detail_items(state)
@@ -443,12 +457,19 @@ defmodule DalaDev.Tui.StateTest do
   end
 
   describe "format_bytes/1" do
-    test "formats bytes" do
-      state = State.new([], [], sample_remotes())
-      state = %{state | current_tab: :debug, selected_remote: hd(sample_remotes())}
-      # Indirectly tested via remote_detail
+    test "formats memory values in the remote detail view" do
+      remote = %Remote{
+        node: :test@localhost,
+        version: "0.8.0",
+        memory: %{total: 50_000_000, processes: 12_000_000}
+      }
+
+      state = State.new([], [], [remote])
+      state = %{state | current_tab: :debug, selected_remote: remote}
       items = State.detail_items(state)
-      assert is_list(items)
+
+      assert Enum.any?(items, &String.contains?(&1, "50.0 MB"))
+      assert Enum.any?(items, &String.contains?(&1, "12.0 MB"))
     end
   end
 

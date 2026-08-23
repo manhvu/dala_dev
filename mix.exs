@@ -4,13 +4,14 @@ defmodule DalaDev.MixProject do
   def project do
     [
       app: :dala_dev,
-      version: "0.3.3",
+      version: "0.4.0",
       elixir: "~> 1.18",
       description: "Development tooling for the Dala framework",
       source_url: "https://github.com/ohhi-vn/dala_dev",
       deps: deps(),
       package: package(),
-      docs: docs()
+      docs: docs(),
+      test_coverage: [tool: ExCoveralls, output: "cover"]
     ]
   end
 
@@ -24,14 +25,19 @@ defmodule DalaDev.MixProject do
       {:ex_ratatui, "~> 0.11"},
       {:avatarz, "~> 0.2", optional: true},
       {:image, "~> 0.54", optional: true},
-      # Dev server
-      {:phoenix_live_view, "~> 1.1"},
-      {:bandit, "~> 1.11"},
-      {:phoenix_pubsub, "~> 2.0"},
-      {:plug_crypto, "~> 2.0"},
+      # Dev server — optional so CLI-only users don't pull the Phoenix stack.
+      # `mix dala.server` / `mix dala.web` check availability and print a hint
+      # when these are missing.
+      {:phoenix_live_view, "~> 1.1", optional: true},
+      {:bandit, "~> 1.11", optional: true},
+      {:phoenix_pubsub, "~> 2.0", optional: true},
+      {:plug_crypto, "~> 2.0", optional: true},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:jump_credo_checks, "~> 0.1.0", only: [:dev, :test], runtime: false}
+      {:jump_credo_checks, "~> 0.1.0", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false},
+      {:lazy_html, ">= 0.1.0", only: :test, runtime: false}
     ]
   end
 
@@ -46,6 +52,8 @@ defmodule DalaDev.MixProject do
         "guides/beginner_guide.md": [title: "Beginner Step-by-Step Guide"],
         "guides/development_workflow.md": [title: "Development Workflow"],
         "guides/release_and_packaging.md": [title: "Release and Packaging"],
+        "guides/architecture.md": [title: "Architecture"],
+        "guides/dala_commands.md": [title: "Dala Commands"],
         "guides/tui.md": [title: "Terminal UI (TUI)"]
       ],
       groups_for_extras: [

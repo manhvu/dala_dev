@@ -80,10 +80,12 @@ defmodule DalaDev.Deployer do
     all = android ++ ios
 
     if all == [] do
-      IO.puts("  #{color(:yellow)}No devices found.#{color(:reset)}")
+      DalaDev.Output.warn("No devices found.")
       {[], []}
     else
-      IO.puts("  Pushing #{count_beams(beam_dirs)} BEAM file(s) to #{length(all)} device(s)...")
+      DalaDev.Output.info(
+        "  Pushing #{count_beams(beam_dirs)} BEAM file(s) to #{length(all)} device(s)..."
+      )
 
       # Try Erlang dist first — hot-loads modules with no restart. We set up
       # tunnels and attempt Node.connect for each device; those that respond
@@ -96,7 +98,8 @@ defmodule DalaDev.Deployer do
         all
         |> Enum.with_index()
         |> Enum.map(fn {device, idx} ->
-          IO.write("  #{device.name || device.serial}  →  pushing...")
+          start = System.monotonic_time()
+          DalaDev.Output.info("  #{device.name || device.serial}  →  pushing...")
           dist_port = Tunnel.dist_port(idx)
           node = Device.node_name(device)
 
@@ -124,15 +127,25 @@ defmodule DalaDev.Deployer do
               {:adb, fallback}
             end
 
+          elapsed =
+            System.convert_time_unit(System.monotonic_time() - start, :native, :millisecond)
+
           case result do
             {:ok, d} ->
               suffix = if method == :dist, do: " (dist, no restart)", else: ""
-              IO.puts(" #{color(:green)}✓#{suffix}#{color(:reset)}")
+
+              DalaDev.Output.success(
+                "  #{device.name || device.serial}#{suffix} (#{DalaDev.Output.format_elapsed(elapsed * 1_000)})"
+              )
+
               {:ok, d}
 
             {:error, reason} ->
-              IO.puts(" #{color(:red)}✗#{color(:reset)}")
-              IO.puts("    #{color(:red)}#{reason}#{color(:reset)}")
+              DalaDev.Output.error(
+                "  #{device.name || device.serial} (#{DalaDev.Output.format_elapsed(elapsed * 1_000)})"
+              )
+
+              DalaDev.Output.error("    #{reason}")
               {:error, %{device | status: :error, error: reason}}
           end
         end)
@@ -150,12 +163,8 @@ defmodule DalaDev.Deployer do
   defp filter_by_device_id(devices, id) do
     case Enum.filter(devices, &Device.match_id?(&1, id)) do
       [] ->
-        IO.puts("  #{color(:red)}No device matched \"#{id}\".#{color(:reset)}")
-
-        IO.puts(
-          "  Run #{color(:cyan)}mix dala.devices#{color(:reset)} to see available device IDs."
-        )
-
+        DalaDev.Output.error("No device matched \"#{id}\".")
+        DalaDev.Output.hint("Run `mix dala.devices` to see available device IDs.")
         []
 
       matched ->
@@ -522,7 +531,7 @@ defmodule DalaDev.Deployer do
       run_adb(["-s", serial, "shell", "rm -f #{stage_device}"])
     catch
       {:error, reason} ->
-        IO.puts("    (warning: priv push failed: #{reason})")
+        DalaDev.Output.warn("    (warning: priv push failed: #{reason})")
     after
       File.rm(stage_local)
     end
@@ -570,7 +579,7 @@ defmodule DalaDev.Deployer do
       :ok
     catch
       {:error, reason} ->
-        IO.puts("    (warning: exqlite lib setup failed: #{reason})")
+        DalaDev.Output.warn("    (warning: exqlite lib setup failed: #{reason})")
         :ok
     after
       File.rm(stage_local)
@@ -598,11 +607,11 @@ defmodule DalaDev.Deployer do
 
         case run_adb(["-s", serial, "shell", cmd]) do
           {:ok, _} -> :ok
-          {:error, e} -> IO.puts("    (warning: exqlite NIF symlink failed: #{e})")
+          {:error, e} -> DalaDev.Output.warn("    (warning: exqlite NIF symlink failed: #{e})")
         end
 
       _ ->
-        IO.puts("    (warning: pm path failed — exqlite NIF symlink skipped)")
+        DalaDev.Output.warn("    (warning: pm path failed — exqlite NIF symlink skipped)")
     end
   end
 
@@ -828,7 +837,7 @@ defmodule DalaDev.Deployer do
                stderr_to_stdout: true
              ) do
           {_, 0} -> :ok
-          {out, _} -> IO.puts("    (warning: iOS priv push failed: #{out})")
+          {out, _} -> DalaDev.Output.warn("    (warning: iOS priv push failed: #{out})")
         end
       end
 
@@ -900,7 +909,7 @@ defmodule DalaDev.Deployer do
                stderr_to_stdout: true
              ) do
           {_, 0} -> :ok
-          {out, _} -> IO.puts("    (warning: priv copy failed: #{out})")
+          {out, _} -> DalaDev.Output.warn("    (warning: priv copy failed: #{out})")
         end
       end
 
@@ -1118,7 +1127,15 @@ defmodule DalaDev.Deployer do
 
   # ── Helpers ──────────────────────────────────────────────────────────────────
 
-  defp collect_beam_dirs do
+  @doc "Collects BEAM directories from the current build. Public for dry-run."
+  @spec collect_beam_dirs() :: [String.t()]
+  def collect_beam_dirs, do: do_collect_beam_dirs()
+
+  @doc "Counts BEAM files in the given dirs. Public for dry-run."
+  @spec count_beams([String.t()]) :: non_neg_integer()
+  def count_beams(beam_dirs), do: do_count_beams(beam_dirs)
+
+  defp do_collect_beam_dirs do
     # Use the same runtime-dep filter as HotPush so we don't push dev-only
     # tooling (dala_dev, credo, etc.) to the device filesystem.
     app_dirs = HotPush.runtime_beam_dirs()
@@ -1229,7 +1246,7 @@ defmodule DalaDev.Deployer do
     end
   end
 
-  defp count_beams(beam_dirs) do
+  defp do_count_beams(beam_dirs) do
     Enum.reduce(beam_dirs, 0, fn dir, acc ->
       case File.ls(dir) do
         {:ok, files} -> acc + Enum.count(files, &String.ends_with?(&1, ".beam"))
@@ -1244,10 +1261,4 @@ defmodule DalaDev.Deployer do
       {output, _} -> {:error, String.trim(output)}
     end
   end
-
-  defp color(:green), do: IO.ANSI.green()
-  defp color(:yellow), do: IO.ANSI.yellow()
-  defp color(:red), do: IO.ANSI.red()
-  defp color(:cyan), do: IO.ANSI.cyan()
-  defp color(:reset), do: IO.ANSI.reset()
 end

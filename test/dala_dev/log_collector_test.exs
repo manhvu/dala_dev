@@ -64,7 +64,13 @@ defmodule DalaDev.LogCollectorTest do
   describe "fetch_local_logs/1" do
     test "runs on local node" do
       result = LogCollector.fetch_local_logs(level: :info)
-      assert is_list(result)
+
+      assert Enum.all?(result, fn entry ->
+               match?(
+                 %{ts: %DateTime{}, node: _, level: _, message: msg} when is_binary(msg),
+                 entry
+               )
+             end)
     end
   end
 end

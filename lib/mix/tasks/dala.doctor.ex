@@ -24,8 +24,10 @@ defmodule Mix.Tasks.Dala.Doctor do
 
   @impl Mix.Task
   def run(_args) do
-    IO.puts("")
-    IO.puts("#{ansi(:cyan)}=== Dala Doctor ===#{ansi(:reset)}")
+    DalaDev.Output.configure([])
+
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Doctor")
 
     issues = []
     issues = issues ++ section("Tools", check_tools())
@@ -33,8 +35,9 @@ defmodule Mix.Tasks.Dala.Doctor do
     issues = issues ++ section("Build", check_build())
     issues = issues ++ section("OTP Cache", check_otp_cache())
     issues = issues ++ section("Devices", check_devices())
+    issues = issues ++ section("Environment", check_environment())
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     failures = Enum.count(issues, &(&1 == :fail))
     warnings = Enum.count(issues, &(&1 == :warn))
@@ -43,24 +46,23 @@ defmodule Mix.Tasks.Dala.Doctor do
       failures > 0 ->
         warn_str =
           if warnings > 0,
-            do: ", #{ansi(:yellow)}#{warnings} warning(s)#{ansi(:reset)}",
+            do: ", #{warnings} warning(s)",
             else: ""
 
-        IO.puts(
-          "#{ansi(:red)}#{failures} failure(s)#{ansi(:reset)}#{warn_str}" <>
-            " — fix the issues above and re-run #{ansi(:cyan)}mix dala.doctor#{ansi(:reset)}."
+        DalaDev.Output.error(
+          "#{failures} failure(s)#{warn_str}" <>
+            " — fix the issues above and re-run mix dala.doctor."
         )
 
         Mix.raise("dala.doctor: #{failures} check(s) failed")
 
       warnings > 0 ->
-        IO.puts(
-          "#{ansi(:yellow)}#{warnings} warning(s)#{ansi(:reset)}" <>
-            " — optional items above may limit some features."
+        DalaDev.Output.warn(
+          "#{warnings} warning(s) — optional items above may limit some features."
         )
 
       true ->
-        IO.puts("#{ansi(:green)}All checks passed.#{ansi(:reset)}")
+        DalaDev.Output.success("All checks passed.")
     end
   end
 
@@ -68,7 +70,8 @@ defmodule Mix.Tasks.Dala.Doctor do
 
   # Prints a titled section and returns list of :ok | :warn | :fail atoms.
   defp section(title, checks) do
-    IO.puts("\n#{ansi(:bright)}#{title}#{ansi(:reset)}")
+    DalaDev.Output.info("")
+    DalaDev.Output.step(title)
 
     Enum.map(checks, fn {level, label, detail, fix} ->
       print_check(level, label, detail, fix)
@@ -579,7 +582,81 @@ defmodule Mix.Tasks.Dala.Doctor do
     end
   end
 
-  # ── Device checks ─────────────────────────────────────────────────────────────
+  # ── Environment checks ───────────────────────────────────────────────────────
+
+  # Checks for known runtime environment gotchas:
+  # - port 4200 squatters (only one Dala LV app can bind per device)
+  # - dala / dala_dev version drift across the three-repo topology
+  defp check_environment do
+    [check_port_4200(), check_version_drift()]
+  end
+
+  defp check_port_4200 do
+    case System.cmd("lsof", ["-i", ":4200", "-sTCP:LISTEN"], stderr_to_stdout: true) do
+      {output, 0} ->
+        pids =
+          output
+          |> String.split("\n")
+          |> Enum.drop(1)
+          |> Enum.map(&(&1 |> String.split() |> Enum.at(1)))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq()
+
+        if pids == [] do
+          {:ok, "Port 4200", "free", nil}
+        else
+          {:warn, "Port 4200",
+           "in use by PID(s): #{Enum.join(pids, ", ")} — a squatter blocks new Dala LV apps from binding",
+           "Force-stop the app holding the port, e.g.:\n" <>
+             "      adb shell am force-stop <package>   (Android)\n" <>
+             "      xcrun simctl terminate booted <bundle-id>   (iOS simulator)"}
+        end
+
+      _ ->
+        # lsof non-zero usually means nothing is listening — that's fine.
+        {:ok, "Port 4200", "free", nil}
+    end
+  end
+
+  defp check_version_drift do
+    dala_version = loaded_app_version(:dala)
+    dala_dev_version = loaded_app_version(:dala_dev)
+
+    cond do
+      is_nil(dala_version) ->
+        {:ok, "Version alignment", "dala not loaded (standalone dala_dev dev)", nil}
+
+      version_drift?(dala_version, dala_dev_version) ->
+        {:warn, "Version alignment",
+         "dala #{dala_version} vs dala_dev #{dala_dev_version} — minor versions differ",
+         "Check all three repos (dala, dala_dev, dala_new) batch together when bumping versions " <>
+           "to avoid ghost regressions (see AGENTS.md gotcha #15)"}
+
+      true ->
+        {:ok, "Version alignment", "dala #{dala_version} / dala_dev #{dala_dev_version}", nil}
+    end
+  end
+
+  # Warn when the minor version segments differ (e.g. 0.8.x vs 0.9.x).
+  # Patch-level drift is normal and expected.
+  defp version_drift?(a, b) do
+    parse_minor(a) != parse_minor(b)
+  end
+
+  defp parse_minor(version) do
+    version
+    |> String.split(".")
+    |> Enum.take(2)
+  end
+
+  defp loaded_app_version(app) do
+    case :application.get_key(app, :vsn) do
+      {:ok, vsn} -> to_string(vsn)
+      _ -> nil
+    end
+  end
+
+  # ── Device checks ──────────────────────────────────────────────────────────────
 
   defp check_devices do
     List.flatten([
@@ -708,28 +785,22 @@ defmodule Mix.Tasks.Dala.Doctor do
   # ── Output helpers ────────────────────────────────────────────────────────────
 
   defp print_check(:ok, label, detail, _fix) do
-    IO.puts(
-      "  #{ansi(:green)}✓#{ansi(:reset)} #{label}" <>
-        if(detail, do: " — #{ansi(:faint)}#{detail}#{ansi(:reset)}", else: "")
-    )
+    suffix = if detail, do: " — #{detail}", else: ""
+    DalaDev.Output.success("#{label}#{suffix}")
   end
 
   defp print_check(:warn, label, detail, fix) do
-    IO.puts(
-      "  #{ansi(:yellow)}⚠#{ansi(:reset)} #{label}" <>
-        if(detail, do: " — #{detail}", else: "")
-    )
+    suffix = if detail, do: " — #{detail}", else: ""
+    DalaDev.Output.warn("#{label}#{suffix}")
 
-    if fix, do: IO.puts("      #{ansi(:yellow)}#{fix}#{ansi(:reset)}")
+    if fix, do: DalaDev.Output.hint(fix)
   end
 
   defp print_check(:fail, label, detail, fix) do
-    IO.puts(
-      "  #{ansi(:red)}✗#{ansi(:reset)} #{label}" <>
-        if(detail, do: " — #{detail}", else: "")
-    )
+    suffix = if detail, do: " — #{detail}", else: ""
+    DalaDev.Output.error("#{label}#{suffix}")
 
-    if fix, do: IO.puts("      #{ansi(:red)}#{fix}#{ansi(:reset)}")
+    if fix, do: DalaDev.Output.hint(fix)
   end
 
   # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -738,11 +809,4 @@ defmodule Mix.Tasks.Dala.Doctor do
   defp has_ios_project?, do: File.exists?("ios/build.sh")
   defp macos?, do: match?({:unix, :darwin}, :os.type())
 
-  defp ansi(:cyan), do: IO.ANSI.cyan()
-  defp ansi(:green), do: IO.ANSI.green()
-  defp ansi(:yellow), do: IO.ANSI.yellow()
-  defp ansi(:red), do: IO.ANSI.red()
-  defp ansi(:bright), do: IO.ANSI.bright()
-  defp ansi(:faint), do: IO.ANSI.faint()
-  defp ansi(:reset), do: IO.ANSI.reset()
 end

@@ -122,23 +122,23 @@ defmodule DalaDev.CITesting do
     cleanup = Keyword.get(opts, :cleanup, true)
 
     # Provision devices (simplified - would call actual provisioning)
-    IO.puts("Provisioning devices for CI testing...")
+    DalaDev.Output.info("Provisioning devices for CI testing...")
 
     # Deploy test build
-    IO.puts("Deploying test build...")
+    DalaDev.Output.info("Deploying test build...")
 
     # Run tests
     case run_suite(suite, opts) do
       {:ok, results} ->
         if cleanup do
-          IO.puts("Cleaning up...")
+          DalaDev.Output.info("Cleaning up...")
         end
 
         {:ok, results}
 
       error ->
         if cleanup do
-          IO.puts("Cleaning up after failure...")
+          DalaDev.Output.info("Cleaning up after failure...")
         end
 
         error
@@ -165,13 +165,13 @@ defmodule DalaDev.CITesting do
         :junit -> generate_junit_report(suite_result)
         :html -> generate_html_report(suite_result)
         :text -> generate_text_report(suite_result)
-        :json -> JSON.encode!(suite_result)
+        :json -> JSON.encode!(json_safe(suite_result))
       end
 
     if output do
       case File.write(output, content) do
         :ok ->
-          IO.puts("Report written to: #{output}")
+          DalaDev.Output.success("Report written to: #{output}")
           :ok
 
         error ->
@@ -241,7 +241,9 @@ defmodule DalaDev.CITesting do
     result =
       try do
         if test.test_fun do
-          :rpc.call(node, test.test_fun, [], timeout)
+          # Anonymous funs must be applied via :erlang.apply over RPC —
+          # calling :rpc.call(node, fun, [], timeout) raises argument error.
+          :rpc.call(node, :erlang, :apply, [test.test_fun, []], timeout)
         else
           # Assume module has a run_tests function
           :rpc.call(node, test.module, :run_tests, [], timeout)
@@ -307,6 +309,24 @@ defmodule DalaDev.CITesting do
       avg_duration_ms: if(total > 0, do: div(total_duration, total), else: 0)
     }
   end
+
+  # Strips non-JSON-serializable values (funs, pids, refs, DateTimes) so the
+  # report can be encoded safely.
+  defp json_safe(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
+  defp json_safe(%{suite: suite} = suite_result) when is_map(suite) do
+    suite_result
+    |> Map.put(:suite, %{name: suite.name, test_count: length(suite.tests)})
+    |> Map.update(:results, [], fn results -> Enum.map(results, &json_safe/1) end)
+  end
+
+  defp json_safe(%{test: test} = result) when is_map(test) do
+    result
+    |> Map.put(:test, %{name: test.name, module: test.module})
+    |> Map.update(:error, nil, &inspect/1)
+  end
+
+  defp json_safe(other), do: other
 
   defp generate_junit_report(suite_result) do
     suite = suite_result.suite

@@ -48,8 +48,14 @@ defmodule DalaDev.Config do
   Returns an empty keyword list if the file does not exist.
   """
   @spec load_dala_config() :: keyword()
-  def load_dala_config do
-    config_file = Path.join(File.cwd!(), "dala.exs")
+  def load_dala_config, do: load_dala_config_from(File.cwd!())
+
+  @doc false
+  # Test seam: same as `load_dala_config/0` but reads from an explicit project
+  # directory, so tests don't have to mutate the VM-global CWD.
+  @spec load_dala_config_from(Path.t()) :: keyword()
+  def load_dala_config_from(project_dir) do
+    config_file = Path.join(project_dir, "dala.exs")
 
     if File.exists?(config_file),
       do: Config.Reader.read!(config_file) |> Keyword.get(:dala_dev, []),

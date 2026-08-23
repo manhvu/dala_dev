@@ -68,11 +68,11 @@ defmodule DalaDev.ABTesting do
 
     results =
       Enum.flat_map(variants, fn variant ->
-        IO.puts("Running variant: #{variant}...")
+        DalaDev.Output.info("Running variant: #{variant}...")
 
         variant_results =
           Enum.map(nodes, fn node ->
-            IO.puts("  Node: #{node}...")
+            DalaDev.Output.info("  Node: #{node}...")
 
             result =
               run_variant_on_node(node, variant, metric, duration, iterations, warmup, timeout)
@@ -184,7 +184,7 @@ defmodule DalaDev.ABTesting do
         value
       end)
 
-    IO.puts(" done")
+    DalaDev.Output.info(" done")
 
     %{
       metric: metric,

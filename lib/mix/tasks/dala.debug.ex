@@ -38,6 +38,9 @@ defmodule Mix.Tasks.Dala.Debug do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _} =
       OptionParser.parse!(args,
         strict: [
@@ -85,51 +88,51 @@ defmodule Mix.Tasks.Dala.Debug do
   defp inspect_process(node, target_str) do
     target = parse_process_ref(target_str)
 
-    Mix.shell().info("Inspecting #{target_str} on #{node}...")
+    DalaDev.Output.step("Inspecting #{target_str} on #{node}")
 
     case Debugger.inspect_process(node, target) do
       {:ok, info} ->
         print_process_info(info)
 
       {:error, reason} ->
-        Mix.shell().error("Failed to inspect process: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to inspect process: #{inspect(reason)}")
     end
   end
 
   defp eval_remote(node, code) do
-    Mix.shell().info("Evaluating on #{node}...")
+    DalaDev.Output.step("Evaluating on #{node}")
 
     case Debugger.eval_remote(node, code) do
       {:ok, result} ->
-        Mix.shell().info("Result:")
+        DalaDev.Output.info("Result:")
         IO.inspect(result)
 
       {:error, reason} ->
-        Mix.shell().error("Failed to evaluate: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to evaluate: #{inspect(reason)}")
     end
   end
 
   defp show_memory_report(node) do
-    Mix.shell().info("Getting memory report for #{node}...")
+    DalaDev.Output.step("Getting memory report for #{node}")
 
     case Debugger.memory_report(node) do
       {:ok, report} ->
         print_memory_report(report)
 
       {:error, reason} ->
-        Mix.shell().error("Failed to get memory report: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to get memory report: #{inspect(reason)}")
     end
   end
 
   defp show_supervision_tree(node) do
-    Mix.shell().info("Getting supervision tree for #{node}...")
+    DalaDev.Output.step("Getting supervision tree for #{node}")
 
     case DalaDev.Debugger.get_supervision_tree(node, []) do
       {:ok, tree} ->
         print_supervision_tree(tree)
 
       {:error, reason} ->
-        Mix.shell().error("Failed to get supervision tree: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to get supervision tree: #{inspect(reason)}")
     end
   end
 
@@ -137,24 +140,24 @@ defmodule Mix.Tasks.Dala.Debug do
     target = parse_process_ref(target_str)
     duration = Keyword.get(opts, :duration, 5000)
 
-    Mix.shell().info("Tracing messages to/from #{target_str} for #{duration}ms...")
+    DalaDev.Output.step("Tracing messages to/from #{target_str} for #{duration}ms")
 
     case Debugger.trace_messages(node, target, duration: duration) do
       {:ok, messages} ->
-        Mix.shell().info("Captured #{length(messages)} messages:")
+        DalaDev.Output.info("Captured #{length(messages)} messages:")
 
         Enum.each(messages, fn msg ->
           print_trace_message(msg)
         end)
 
       {:error, reason} ->
-        Mix.shell().error("Failed to trace messages: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to trace messages: #{inspect(reason)}")
     end
   end
 
   defp start_interactive_shell(node) do
-    Mix.shell().info("Starting interactive debug shell on #{node}...")
-    Mix.shell().info("Type 'help' for commands, 'exit' to quit.")
+    DalaDev.Output.step("Starting interactive debug shell on #{node}")
+    DalaDev.Output.info("Type 'help' for commands, 'exit' to quit.")
 
     shell_loop(node)
   end
@@ -171,11 +174,11 @@ defmodule Mix.Tasks.Dala.Debug do
         :ok
 
       "node" ->
-        Mix.shell().info("Current node: #{node}")
+        DalaDev.Output.info("Current node: #{node}")
         shell_loop(node)
 
       "nodes" ->
-        Mix.shell().info("Connected nodes: #{inspect(Node.list())}")
+        DalaDev.Output.info("Connected nodes: #{inspect(Node.list())}")
         shell_loop(node)
 
       "memory" ->
@@ -198,14 +201,14 @@ defmodule Mix.Tasks.Dala.Debug do
         shell_loop(node)
 
       other ->
-        Mix.shell().error("Unknown command: #{other}")
-        Mix.shell().info("Type 'help' for available commands.")
+        DalaDev.Output.error("Unknown command: #{other}")
+        DalaDev.Output.info("Type 'help' for available commands.")
         shell_loop(node)
     end
   end
 
   defp print_help do
-    Mix.shell().info("""
+    DalaDev.Output.info("""
     Available commands:
       help          - Show this help
       exit          - Exit debug shell
@@ -242,29 +245,29 @@ defmodule Mix.Tasks.Dala.Debug do
   defp resolve_node(node) when is_atom(node), do: node
 
   defp print_process_info(info) do
-    Mix.shell().info("Process: #{info.pid}")
-    Mix.shell().info("Status: #{info.status}")
-    Mix.shell().info("Memory: #{info.memory} bytes")
-    Mix.shell().info("Reductions: #{info.reductions}")
-    Mix.shell().info("Message queue length: #{info.message_queue_len}")
-    Mix.shell().info("Current function: #{info.current_function}")
+    DalaDev.Output.info("Process: #{info.pid}")
+    DalaDev.Output.info("Status: #{info.status}")
+    DalaDev.Output.info("Memory: #{info.memory} bytes")
+    DalaDev.Output.info("Reductions: #{info.reductions}")
+    DalaDev.Output.info("Message queue length: #{info.message_queue_len}")
+    DalaDev.Output.info("Current function: #{info.current_function}")
 
     if info.dictionary != [] do
-      Mix.shell().info("\nProcess dictionary:")
+      DalaDev.Output.info("\nProcess dictionary:")
 
       Enum.each(info.dictionary, fn {k, v} ->
-        Mix.shell().info("  #{k}: #{inspect(v)}")
+        DalaDev.Output.info("  #{k}: #{inspect(v)}")
       end)
     end
 
     if info.state do
-      Mix.shell().info("\nState:")
+      DalaDev.Output.info("\nState:")
       IO.inspect(info.state, pretty: true)
     end
   end
 
   defp print_memory_report(report) do
-    Mix.shell().info("""
+    DalaDev.Output.info("""
     Memory Report for #{report.node || "local"}:
       Total: #{report.total}
       Processes: #{report.processes}
@@ -277,8 +280,8 @@ defmodule Mix.Tasks.Dala.Debug do
   end
 
   defp print_supervision_tree(tree) do
-    Mix.shell().info("Supervision Tree:")
-    Mix.shell().info(Jason.encode!(tree, pretty: true))
+    DalaDev.Output.info("Supervision Tree:")
+    DalaDev.Output.info(Jason.encode!(tree, pretty: true))
   end
 
   defp print_trace_message(msg) do
@@ -289,6 +292,6 @@ defmodule Mix.Tasks.Dala.Debug do
         _ -> "UNKNOWN"
       end
 
-    Mix.shell().info("[#{type_str}] #{msg.message}")
+    DalaDev.Output.info("[#{type_str}] #{msg.message}")
   end
 end

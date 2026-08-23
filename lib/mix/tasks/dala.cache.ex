@@ -66,6 +66,8 @@ defmodule Mix.Tasks.Dala.Cache do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
     targets = resolve_targets(opts)
@@ -75,19 +77,19 @@ defmodule Mix.Tasks.Dala.Cache do
 
     cond do
       opts[:clear] != true ->
-        IO.puts("")
-        IO.puts("(read-only — pass --clear to delete; add --include-transitive to widen)")
+        DalaDev.Output.info("")
+        DalaDev.Output.hint("(read-only — pass --clear to delete; add --include-transitive to widen)")
 
       opts[:dry_run] == true ->
-        IO.puts("")
-        IO.puts("(--dry-run: nothing was deleted)")
+        DalaDev.Output.info("")
+        DalaDev.Output.info("(--dry-run: nothing was deleted)")
 
       opts[:yes] == true or confirm_delete?(targets) ->
         delete_targets(targets)
 
       true ->
-        IO.puts("")
-        IO.puts("Aborted.")
+        DalaDev.Output.info("")
+        DalaDev.Output.warn("Aborted.")
     end
   end
 
@@ -188,9 +190,9 @@ defmodule Mix.Tasks.Dala.Cache do
   # ── Reporting ──────────────────────────────────────────────────────────────
 
   defp print_header do
-    IO.puts("")
-    IO.puts("Dala caches on this machine:")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala caches on this machine")
+    DalaDev.Output.info("")
   end
 
   defp print_targets(targets) do
@@ -199,16 +201,16 @@ defmodule Mix.Tasks.Dala.Cache do
 
       status_icon =
         case {exists?, t.kind} do
-          {true, :ours} -> IO.ANSI.cyan() <> "●" <> IO.ANSI.reset()
-          {true, :transitive} -> IO.ANSI.yellow() <> "●" <> IO.ANSI.reset()
-          {false, _} -> IO.ANSI.faint() <> "○" <> IO.ANSI.reset()
+          {true, :ours} -> "●"
+          {true, :transitive} -> "●"
+          {false, _} -> "○"
         end
 
-      IO.puts("  #{status_icon} #{t.name}")
-      IO.puts("      path: #{t.path}")
-      IO.puts("      size: #{size_str}")
-      IO.puts("      note: #{t.hint}")
-      IO.puts("")
+      DalaDev.Output.info("  #{status_icon} #{t.name}")
+      DalaDev.Output.info("path: #{t.path}")
+      DalaDev.Output.info("size: #{size_str}")
+      DalaDev.Output.info("note: #{t.hint}")
+      DalaDev.Output.info("")
     end)
   end
 
@@ -262,10 +264,10 @@ defmodule Mix.Tasks.Dala.Cache do
     paths_to_delete = Enum.filter(targets, &File.exists?(&1.path))
 
     if paths_to_delete == [] do
-      IO.puts("Nothing to delete — all listed caches are already absent.")
+      DalaDev.Output.info("Nothing to delete — all listed caches are already absent.")
       false
     else
-      IO.puts("")
+      DalaDev.Output.info("")
       IO.write("Delete the paths above? [y/N] ")
 
       case IO.gets("") do
@@ -280,16 +282,16 @@ defmodule Mix.Tasks.Dala.Cache do
       if File.exists?(t.path) do
         case File.rm_rf(t.path) do
           {:ok, _} ->
-            IO.puts("  #{IO.ANSI.green()}✓ deleted#{IO.ANSI.reset()} #{t.path}")
+            DalaDev.Output.success("deleted #{t.path}")
 
           {:error, reason, file} ->
-            IO.puts(
-              "  #{IO.ANSI.red()}✗ failed#{IO.ANSI.reset()} #{t.path} — #{inspect(reason)} (#{file})"
+            DalaDev.Output.error(
+              "failed #{t.path} — #{inspect(reason)} (#{file})"
             )
         end
       end
     end)
 
-    IO.puts("")
+    DalaDev.Output.info("")
   end
 end

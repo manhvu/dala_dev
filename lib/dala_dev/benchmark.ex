@@ -151,6 +151,7 @@ defmodule DalaDev.Benchmark do
   end
 
   @doc false
+  @spec run_and_measure((-> any())) :: {:ok, any(), map()}
   def run_and_measure(fun) when is_function(fun, 0) do
     # Get initial stats
     initial_stats = get_process_stats(self())
@@ -172,6 +173,7 @@ defmodule DalaDev.Benchmark do
   end
 
   @doc false
+  @spec profile_memory_locally(non_neg_integer(), non_neg_integer()) :: [map()]
   def profile_memory_locally(duration, interval) do
     end_time = System.monotonic_time(:millisecond) + duration
 

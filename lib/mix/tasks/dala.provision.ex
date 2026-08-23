@@ -54,6 +54,10 @@ defmodule Mix.Tasks.Dala.Provision do
 
   @impl Mix.Task
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+
+    DalaDev.Output.configure([])
+
     {opts, _, _} = OptionParser.parse(argv, strict: @switches)
     mode = if opts[:distribution], do: :distribution, else: :development
 
@@ -65,29 +69,29 @@ defmodule Mix.Tasks.Dala.Provision do
       Mix.raise("No ios/ directory found. Run from the root of a dala iOS project.")
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
     label = if mode == :distribution, do: "Distribution", else: "Development"
-    IO.puts("#{cyan()}=== iOS Provisioning (#{label}) ===#{reset()}")
-    IO.puts("")
-    IO.puts("#{bright()}What you need before this step:#{reset()}")
-    IO.puts("")
-    IO.puts("  1. Apple ID — free at #{cyan()}https://appleid.apple.com#{reset()}")
-    IO.puts("  2. Xcode signed in with that Apple ID")
-    IO.puts("     Open Xcode → Settings → Accounts → [+] → Apple ID")
-    IO.puts("  3. (App Store only) Apple Developer Program — $99/year")
-    IO.puts("     Free accounts work for deploying to your own devices.")
-    IO.puts("")
-    IO.puts("#{bright()}Checking...#{reset()}")
-    IO.puts("")
+    DalaDev.Output.step("iOS Provisioning (#{label})")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("What you need before this step:")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("1. Apple ID — free at https://appleid.apple.com")
+    DalaDev.Output.info("2. Xcode signed in with that Apple ID")
+    DalaDev.Output.info("Open Xcode → Settings → Accounts → [+] → Apple ID")
+    DalaDev.Output.info("3. (App Store only) Apple Developer Program — $99/year")
+    DalaDev.Output.info("Free accounts work for deploying to your own devices.")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Checking")
+    DalaDev.Output.info("")
 
     check_signing_identity!(mode)
     team_id = resolve_team_id()
     bundle_id = check_bundle_id!()
 
-    IO.puts("")
-    IO.puts("  Bundle ID : #{cyan()}#{bundle_id}#{reset()}")
-    IO.puts("  Team ID   : #{cyan()}#{team_id}#{reset()}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Bundle ID : #{bundle_id}")
+    DalaDev.Output.info("Team ID   : #{team_id}")
+    DalaDev.Output.info("")
 
     # For distribution mode: if the user already has an App Store profile
     # for this bundle ID locally, use its actual UUID rather than guessing
@@ -111,33 +115,33 @@ defmodule Mix.Tasks.Dala.Provision do
     generate_xcodeproj(bundle_id, team_id, profile_specifier)
     generate_swift_stub()
 
-    IO.puts("")
-    IO.puts("#{bright()}Contacting Apple to register App ID and download profile...#{reset()}")
-    IO.puts("(requires internet — may take 10–30 seconds)")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Contacting Apple to register App ID and download profile")
+    DalaDev.Output.info("(requires internet — may take 10–30 seconds)")
+    DalaDev.Output.info("")
 
     run_xcodebuild!(mode)
     verify_profile!(bundle_id, mode)
 
-    IO.puts("")
-    IO.puts("#{green()}✓ Provisioning complete!#{reset()}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.success("Provisioning complete!")
+    DalaDev.Output.info("")
 
     case mode do
       :distribution ->
-        IO.puts("Next step: #{cyan()}mix dala.release#{reset()}")
+        DalaDev.Output.info("Next step: mix dala.release")
 
       _ ->
-        IO.puts("Next step: #{cyan()}mix dala.deploy --native#{reset()}")
+        DalaDev.Output.info("Next step: mix dala.deploy --native")
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
-    IO.puts(
-      "#{faint()}Free Apple ID profiles expire every 7 days — re-run mix dala.provision when that happens."
+    DalaDev.Output.hint(
+      "Free Apple ID profiles expire every 7 days — re-run mix dala.provision when that happens."
     )
 
-    IO.puts("Paid Developer Program profiles last 1 year.#{reset()}")
+    DalaDev.Output.hint("Paid Developer Program profiles last 1 year.")
   end
 
   # ── Prerequisite checks ───────────────────────────────────────────────────────
@@ -164,11 +168,11 @@ defmodule Mix.Tasks.Dala.Provision do
             # For distribution, xcodebuild -allowProvisioningUpdates with the
             # archive action can create the cert if missing — so this isn't
             # fatal in distribution mode. Just warn and let xcodebuild try.
-            IO.puts("  #{yellow()}?#{reset()} #{cert_kind} certificate — not yet in keychain")
+            DalaDev.Output.warn("#{cert_kind} certificate — not yet in keychain")
 
             if mode == :distribution do
-              IO.puts(
-                "     #{faint()}xcodebuild will attempt to create one when contacting Apple.#{reset()}"
+              DalaDev.Output.info(
+                "xcodebuild will attempt to create one when contacting Apple."
               )
             else
               Mix.raise("""
@@ -184,11 +188,11 @@ defmodule Mix.Tasks.Dala.Provision do
             end
 
           [id] ->
-            IO.puts("  #{green()}✓#{reset()} Signing certificate — #{faint()}#{id}#{reset()}")
+            DalaDev.Output.success("Signing certificate — #{id}")
 
           many ->
-            IO.puts(
-              "  #{green()}✓#{reset()} Signing certificate — #{faint()}#{hd(many)}#{reset()} (#{length(many)} found, using first)"
+            DalaDev.Output.success(
+              "Signing certificate — #{hd(many)} (#{length(many)} found, using first)"
             )
         end
 
@@ -202,27 +206,23 @@ defmodule Mix.Tasks.Dala.Provision do
 
     cond do
       team = cfg[:ios_team_id] ->
-        IO.puts("  #{green()}✓#{reset()} Team ID — #{team} #{faint()}(from dala.exs)#{reset()}")
+        DalaDev.Output.success("Team ID — #{team} (from dala.exs)")
         team
 
       team = team_from_any_profile() ->
-        IO.puts(
-          "  #{green()}✓#{reset()} Team ID — #{team} #{faint()}(auto-detected from existing profile)#{reset()}"
-        )
+        DalaDev.Output.success("Team ID — #{team} (auto-detected from existing profile)")
 
         team
 
       true ->
-        IO.puts("  #{yellow()}?#{reset()} Team ID — could not auto-detect")
+        DalaDev.Output.warn("Team ID — could not auto-detect")
 
-        IO.puts("     Paid Apple Developer Program ($99/yr):")
+        DalaDev.Output.info("Paid Apple Developer Program ($99/yr):")
 
-        IO.puts(
-          "       #{cyan()}https://developer.apple.com/account#{reset()} → Membership → Team ID"
-        )
+        DalaDev.Output.info("https://developer.apple.com/account → Membership → Team ID")
 
-        IO.puts("     Free tier (Personal Team, no $99):")
-        IO.puts("       Xcode → Settings → Accounts → [your Apple ID] → Team column")
+        DalaDev.Output.info("Free tier (Personal Team, no $99):")
+        DalaDev.Output.info("Xcode → Settings → Accounts → [your Apple ID] → Team column")
 
         team = Mix.shell().prompt("  Enter Team ID:") |> String.trim()
 
@@ -264,7 +264,7 @@ defmodule Mix.Tasks.Dala.Provision do
 
   defp check_bundle_id! do
     bundle_id = DalaDev.Config.bundle_id()
-    IO.puts("  #{green()}✓#{reset()} Bundle ID — #{bundle_id}")
+    DalaDev.Output.success("Bundle ID — #{bundle_id}")
     bundle_id
   end
 
@@ -287,11 +287,11 @@ defmodule Mix.Tasks.Dala.Provision do
       end
 
     if needs_write do
-      IO.puts("  Writing ios/Provision.xcodeproj...")
+      DalaDev.Output.info("Writing ios/Provision.xcodeproj...")
       File.mkdir_p!(proj_dir)
       File.write!(proj_file, expected)
     else
-      IO.puts("  #{green()}✓#{reset()} ios/Provision.xcodeproj — up to date")
+      DalaDev.Output.success("ios/Provision.xcodeproj — up to date")
     end
   end
 
@@ -322,7 +322,7 @@ defmodule Mix.Tasks.Dala.Provision do
 
     case matches do
       [%{uuid: uuid}] ->
-        IO.puts("  #{green()}✓#{reset()} App Store profile — found locally (UUID #{uuid})")
+        DalaDev.Output.success("App Store profile — found locally (UUID #{uuid})")
         uuid
 
       [] ->
@@ -334,14 +334,14 @@ defmodule Mix.Tasks.Dala.Provision do
 
         case exact do
           [%{uuid: uuid} | _] ->
-            IO.puts("  #{green()}✓#{reset()} App Store profile — found locally (UUID #{uuid})")
+            DalaDev.Output.success("App Store profile — found locally (UUID #{uuid})")
             uuid
 
           [] ->
             %{uuid: uuid} = hd(many)
 
-            IO.puts(
-              "  #{yellow()}?#{reset()} Multiple wildcard profiles match — using first (UUID #{uuid})"
+            DalaDev.Output.warn(
+              "Multiple wildcard profiles match — using first (UUID #{uuid})"
             )
 
             uuid
@@ -361,9 +361,9 @@ defmodule Mix.Tasks.Dala.Provision do
     path = "ios/DalaProvision.swift"
 
     if File.exists?(path) do
-      IO.puts("  #{green()}✓#{reset()} ios/DalaProvision.swift — already exists")
+      DalaDev.Output.success("ios/DalaProvision.swift — already exists")
     else
-      IO.puts("  Writing ios/DalaProvision.swift...")
+      DalaDev.Output.info("Writing ios/DalaProvision.swift...")
 
       File.write!(path, """
       import SwiftUI
@@ -434,7 +434,7 @@ defmodule Mix.Tasks.Dala.Provision do
       # Show the full xcodebuild output first — keeps Apple's exact error
       # text visible for google searches and for users comparing notes with
       # online answers. The targeted hint below it is additive.
-      IO.puts(output)
+      DalaDev.Output.info(output)
 
       hint = diagnose_xcodebuild_failure(output)
       Mix.raise(format_xcodebuild_error(rc, hint, args))
@@ -444,7 +444,7 @@ defmodule Mix.Tasks.Dala.Provision do
     output
     |> String.split("\n")
     |> Enum.filter(&(&1 =~ Regex.compile!("^\\*\\* BUILD (SUCCEEDED|FAILED)")))
-    |> Enum.each(&IO.puts/1)
+    |> Enum.each(&DalaDev.Output.info/1)
 
     :ok
   end
@@ -703,10 +703,10 @@ defmodule Mix.Tasks.Dala.Provision do
 
     if matching != [] do
       label = if mode == :distribution, do: "App Store", else: "development"
-      IO.puts("  #{green()}✓#{reset()} #{label} provisioning profile ready")
+      DalaDev.Output.success("#{label} provisioning profile ready")
     else
-      IO.puts(
-        "  #{yellow()}⚠#{reset()}  Profile not found — re-run `mix dala.provision#{if mode == :distribution, do: " --distribution", else: ""}` if needed"
+      DalaDev.Output.warn(
+        "Profile not found — re-run `mix dala.provision#{if mode == :distribution, do: " --distribution", else: ""}` if needed"
       )
     end
   end
@@ -902,13 +902,5 @@ defmodule Mix.Tasks.Dala.Provision do
     """
   end
 
-  # ── ANSI helpers ──────────────────────────────────────────────────────────────
-
   defp macos?, do: match?({:unix, :darwin}, :os.type())
-  defp green, do: IO.ANSI.green()
-  defp yellow, do: IO.ANSI.yellow()
-  defp cyan, do: IO.ANSI.cyan()
-  defp bright, do: IO.ANSI.bright()
-  defp faint, do: IO.ANSI.faint()
-  defp reset, do: IO.ANSI.reset()
 end

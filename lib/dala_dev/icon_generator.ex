@@ -68,6 +68,11 @@ defmodule DalaDev.IconGenerator do
 
   @ios_sizes [20, 29, 40, 58, 60, 76, 80, 87, 120, 152, 167, 180, 1024]
 
+  # Compiled at module-attribute expansion time via
+  # `DalaDev.Utils.compile_regex/2` (compile-time regex sigil literals are unsafe
+  # on Elixir 1.19 / OTP 28.0+).
+  @hex_color_pattern DalaDev.Utils.compile_regex("^[0-9A-F]{6}$")
+
   @doc """
   Generates a random robot avatar and writes platform icons into `output_dir`.
 
@@ -92,7 +97,7 @@ defmodule DalaDev.IconGenerator do
 
       resize_for_platforms(source_png, output_dir)
     else
-      Mix.shell().info("""
+      DalaDev.Output.info("""
       \nNote: the `image` dependency is not available so a random icon could not
       be generated. Using the Dala logo as a placeholder instead.
       Run `mix dala.icon` after adding `{:image, "~> 0.54"}` to your deps to
@@ -237,7 +242,7 @@ defmodule DalaDev.IconGenerator do
   def normalise_hex!(hex) when is_binary(hex) do
     raw = String.trim(hex) |> String.upcase() |> String.trim_leading("#")
 
-    if Regex.match?(~r/^[0-9A-F]{6}$/, raw) do
+    if Regex.match?(@hex_color_pattern, raw) do
       "#" <> raw
     else
       raise ArgumentError,

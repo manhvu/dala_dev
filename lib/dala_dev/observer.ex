@@ -262,6 +262,7 @@ defmodule DalaDev.Observer do
 
   # ── Private: Helpers ─────────────────────────────
 
+  @spec call_remote(node(), (-> term())) :: term()
   def call_remote(node, fun) do
     if node == Node.self() do
       fun.()
@@ -280,6 +281,7 @@ defmodule DalaDev.Observer do
   end
 
   @doc false
+  @spec execute_remote((-> term())) :: term()
   def execute_remote(fun) do
     fun.()
   end

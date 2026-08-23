@@ -26,6 +26,9 @@ defmodule Mix.Tasks.Dala.Push do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} =
       OptionParser.parse(args,
         switches: [all: :boolean, cookie: :string, device: :string],
@@ -36,20 +39,20 @@ defmodule Mix.Tasks.Dala.Push do
     cookie = opts |> Keyword.get(:cookie, "dala_secret") |> String.to_atom()
     device_id = Keyword.get(opts, :device, nil)
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     snapshot = DalaDev.HotPush.snapshot_beams()
     Mix.Task.run("compile")
 
-    IO.puts("\n#{IO.ANSI.cyan()}Connecting to devices...#{IO.ANSI.reset()}")
+    DalaDev.Output.step("Connecting to devices")
     nodes = DalaDev.HotPush.connect(cookie: cookie, device: device_id)
 
     if nodes == [] do
-      IO.puts("#{IO.ANSI.yellow()}No running nodes found.#{IO.ANSI.reset()}")
-      IO.puts("Start apps first: mix dala.connect")
+      DalaDev.Output.warn("No running nodes found.")
+      DalaDev.Output.hint("Start apps first: mix dala.connect")
     else
-      IO.puts("  Connected: #{Enum.map_join(nodes, ", ", &to_string/1)}")
-      IO.puts("#{IO.ANSI.cyan()}Pushing modules...#{IO.ANSI.reset()}")
+      DalaDev.Output.info("Connected: #{Enum.map_join(nodes, ", ", &to_string/1)}")
+      DalaDev.Output.step("Pushing modules")
 
       {pushed, failed} =
         if push_all,
@@ -57,14 +60,14 @@ defmodule Mix.Tasks.Dala.Push do
           else: DalaDev.HotPush.push_changed(nodes, snapshot)
 
       if pushed == 0 and failed == [] do
-        IO.puts("  #{IO.ANSI.yellow()}Nothing changed.#{IO.ANSI.reset()}")
+        DalaDev.Output.warn("Nothing changed.")
       else
         if pushed > 0 do
-          IO.puts("  #{IO.ANSI.green()}✓ #{pushed} module(s) pushed#{IO.ANSI.reset()}")
+          DalaDev.Output.success("#{pushed} module(s) pushed")
         end
 
         Enum.each(failed, fn {mod, reason} ->
-          IO.puts("  #{IO.ANSI.red()}✗ #{mod}: #{inspect(reason)}#{IO.ANSI.reset()}")
+          DalaDev.Output.error("#{mod}: #{inspect(reason)}")
         end)
       end
     end

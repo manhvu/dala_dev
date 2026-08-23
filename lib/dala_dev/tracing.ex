@@ -105,8 +105,8 @@ defmodule DalaDev.Tracing do
 
     case File.write(path, Jason.encode!(chrome_trace, pretty: true)) do
       :ok ->
-        IO.puts("Trace exported to: #{path}")
-        IO.puts("Open in Chrome: chrome://tracing/")
+        DalaDev.Output.success("Trace exported to: #{path}")
+        DalaDev.Output.info("Open in Chrome: chrome://tracing/")
         :ok
 
       error ->
@@ -163,6 +163,7 @@ defmodule DalaDev.Tracing do
   end
 
   @doc false
+  @spec enable_trace_on_node(term(), keyword()) :: :ok
   def enable_trace_on_node(_trace_id, _opts) do
     # This runs ON the remote node
     # In a real implementation:

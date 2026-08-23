@@ -19,6 +19,8 @@ defmodule DalaDev.Server.WebLive do
     %{id: :settings, name: "Settings", icon: "settings", path: "/settings"}
   ]
 
+  @impl true
+  @spec render(Phoenix.LiveView.Socket.assigns()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="dala-web-container">
@@ -33,7 +35,7 @@ defmodule DalaDev.Server.WebLive do
           <%= for feature <- @features do %>
             <a href={feature.path} class={"dala-nav-item #{if @active_feature == feature.id, do: "active"}"}>
               <span class="dala-nav-icon">
-                <%= render_icon(feature.icon) %>
+                <%= render_icon(feature.id) %>
               </span>
               <span class="dala-nav-text"><%= feature.name %></span>
             </a>
@@ -65,6 +67,9 @@ defmodule DalaDev.Server.WebLive do
     """
   end
 
+  @impl true
+  @spec mount(term(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     socket =
       socket
@@ -78,9 +83,11 @@ defmodule DalaDev.Server.WebLive do
     {:ok, socket}
   end
 
+  @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(%{"feature" => feature_id}, _uri, socket) do
-    feature_id = String.to_atom(feature_id)
-    feature = Enum.find(@features, &(&1.id == feature_id))
+    feature = Enum.find(@features, &(Atom.to_string(&1.id) == feature_id))
 
     socket =
       if feature do
@@ -94,8 +101,10 @@ defmodule DalaDev.Server.WebLive do
     {:noreply, socket}
   end
 
-  def handle_params(_params, %URI{path: path}, socket) do
+  def handle_params(_params, uri, socket) when is_binary(uri) do
     # Extract feature from path
+    path = URI.parse(uri).path || "/"
+
     feature_id =
       case path do
         "/devices" -> :devices

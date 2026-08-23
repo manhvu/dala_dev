@@ -54,28 +54,8 @@ defmodule DalaDev.Tui.Devices do
   """
   @spec list_android() :: [t()]
   def list_android do
-    case DalaDev.Discovery.Android.list_devices() do
-      {:ok, devices} ->
-        Enum.map(devices, fn device ->
-          %__MODULE__{
-            id: device.id || device.serial,
-            platform: :android,
-            type: if(device.emulator, do: :emulator, else: :device),
-            name: device.model || device.name || device.serial,
-            status: normalize_status(device.status),
-            serial: device.serial,
-            version: device.version,
-            node: nil,
-            dist_port: nil,
-            host_ip: nil,
-            error: device.error,
-            device_struct: device
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    DalaDev.Discovery.Android.list_devices()
+    |> Enum.map(&from_device/1)
   end
 
   @doc """
@@ -83,28 +63,31 @@ defmodule DalaDev.Tui.Devices do
   """
   @spec list_ios() :: [t()]
   def list_ios do
-    case DalaDev.Discovery.IOS.list_devices() do
-      {:ok, devices} ->
-        Enum.map(devices, fn device ->
-          %__MODULE__{
-            id: device.udid || device.id,
-            platform: :ios,
-            type: if(device.simulator, do: :simulator, else: :device),
-            name: device.name,
-            status: normalize_status(device.status),
-            serial: device.udid,
-            version: device.os_version,
-            node: nil,
-            dist_port: nil,
-            host_ip: nil,
-            error: device.error,
-            device_struct: device
-          }
-        end)
+    DalaDev.Discovery.IOS.list_devices()
+    |> Enum.map(&from_device/1)
+  end
 
-      {:error, _} ->
-        []
-    end
+  @doc """
+  Converts a `%DalaDev.Device{}` into a TUI device entry.
+
+  Public for testing.
+  """
+  @spec from_device(DalaDev.Device.t()) :: t()
+  def from_device(%DalaDev.Device{} = device) do
+    %__MODULE__{
+      id: device.serial,
+      platform: device.platform,
+      type: device.type || :device,
+      name: device.name || device.serial,
+      status: normalize_status(device.status),
+      serial: device.serial,
+      version: device.version,
+      node: device.node,
+      dist_port: device.dist_port,
+      host_ip: device.host_ip,
+      error: device.error,
+      device_struct: device
+    }
   end
 
   @doc """
@@ -149,15 +132,24 @@ defmodule DalaDev.Tui.Devices do
   Gets the node name for a device using DalaDev.Device conventions.
   """
   @spec node_name(t()) :: atom() | nil
-  def node_name(%__MODULE__{node: node}) when is_atom(node), do: node
+  # Note: `is_atom(nil)` is true in Elixir, so we must exclude nil explicitly
+  def node_name(%__MODULE__{node: node}) when is_atom(node) and not is_nil(node), do: node
 
   def node_name(%__MODULE__{platform: :android, serial: serial, name: name}) do
-    suffix = if serial, do: String.downcase(serial), else: String.downcase(name) |> String.replace(" ", "_")
+    suffix =
+      if serial,
+        do: String.downcase(serial),
+        else: String.downcase(name) |> String.replace(" ", "_")
+
     "dala_app_android_#{suffix}" |> String.to_atom()
   end
 
   def node_name(%__MODULE__{platform: :ios, serial: serial, name: name}) do
-    suffix = if serial, do: String.downcase(serial), else: String.downcase(name) |> String.replace(" ", "_")
+    suffix =
+      if serial,
+        do: String.downcase(serial),
+        else: String.downcase(name) |> String.replace(" ", "_")
+
     "dala_app_ios_#{suffix}" |> String.to_atom()
   end
 
@@ -216,7 +208,7 @@ defmodule DalaDev.Tui.Devices do
 
     extra =
       case device do
-        %{node: node} when not is_atom(node) -> " | node: #{node}"
+        %{node: node} when is_atom(node) and not is_nil(node) -> " | node: #{node}"
         %{dist_port: port} when is_integer(port) -> " | port: #{port}"
         %{host_ip: ip} when is_binary(ip) -> " | ip: #{ip}"
         _ -> ""
@@ -231,6 +223,7 @@ defmodule DalaDev.Tui.Devices do
   defp normalize_status(:disconnected), do: :discovered
   defp normalize_status(:offline), do: :discovered
   defp normalize_status(:ok), do: :connected
+  defp normalize_status(nil), do: :discovered
   defp normalize_status(status) when is_atom(status), do: status
   defp normalize_status(_), do: :discovered
 

@@ -108,6 +108,8 @@ defmodule DalaDev.Profiling do
   end
 
   @doc false
+  @spec profile_locally((-> any()), non_neg_integer(), atom()) ::
+          {:ok, term()} | {:error, String.t()}
   def profile_locally(fun, duration, tool \\ :eprof) do
     case tool do
       :eprof -> profile_locally_eprof(fun, duration)
@@ -118,12 +120,14 @@ defmodule DalaDev.Profiling do
   end
 
   defp profile_locally_eprof(fun, duration) do
-    # Start :eprof profiling
+    # Start :eprof profiling. On modern OTP, :eprof.analyze/0 prints results
+    # to stdio and returns :ok — there is no :eprof.get_data/0.
     apply(:eprof, :start, [])
     apply(:eprof, :profile, [fn -> profile_duration(fun, duration) end])
+    apply(:eprof, :analyze, [])
+    apply(:eprof, :stop, [])
 
-    # Get profile data
-    {:ok, apply(:eprof, :get_data, [])}
+    {:ok, :eprof_completed}
   end
 
   defp profile_locally_fprof(fun, _duration) do

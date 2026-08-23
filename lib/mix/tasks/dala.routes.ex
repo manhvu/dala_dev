@@ -48,6 +48,9 @@ defmodule Mix.Tasks.Dala.Routes do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} = OptionParser.parse(args, switches: [strict: :boolean])
     strict = Keyword.get(opts, :strict, false)
 
@@ -58,44 +61,40 @@ defmodule Mix.Tasks.Dala.Routes do
     skipped = Enum.filter(refs, fn r -> r.skipped end)
 
     total = length(refs) - length(skipped)
-    IO.puts("")
+    DalaDev.Output.info("")
 
     if refs == [] do
-      IO.puts("#{IO.ANSI.yellow()}No navigation calls found in lib/.#{IO.ANSI.reset()}")
-      IO.puts("")
+      DalaDev.Output.warn("No navigation calls found in lib/.")
+      DalaDev.Output.info("")
       return(false, strict)
     end
 
     if bad == [] do
-      IO.puts(
-        "#{IO.ANSI.green()}✓ #{total} navigation reference(s) valid" <>
-          skipped_note(skipped) <> "#{IO.ANSI.reset()}"
+      DalaDev.Output.success(
+        "#{total} navigation reference(s) valid" <> skipped_note(skipped)
       )
     else
-      IO.puts(
-        "#{IO.ANSI.red()}✗ #{length(bad)} unresolvable navigation destination(s):#{IO.ANSI.reset()}\n"
-      )
+      DalaDev.Output.error("#{length(bad)} unresolvable navigation destination(s):")
 
       Enum.each(bad, fn %{file: file, line: line, fn_name: fn_name, dest: dest} ->
-        IO.puts(
-          "  #{IO.ANSI.yellow()}#{file}:#{line}#{IO.ANSI.reset()}  " <>
-            "#{fn_name}(socket, #{inspect(dest)})"
+        DalaDev.Output.warn(
+          "#{file}:#{line}  #{fn_name}(socket, #{inspect(dest)})"
         )
 
-        IO.puts("    Module #{inspect(dest)} could not be loaded.")
+        DalaDev.Output.info("    Module #{inspect(dest)} could not be loaded.")
       end)
 
       if skipped != [] do
-        IO.puts("")
+        DalaDev.Output.info("")
 
-        IO.puts(
-          "  #{IO.ANSI.cyan()}#{length(skipped)} dynamic/named destination(s) skipped " <>
-            "(cannot verify at compile time)#{IO.ANSI.reset()}"
+        DalaDev.Output.info(
+          "#{length(skipped)} dynamic/named destination(s) skipped " <>
+            "(cannot verify at compile time)"
         )
       end
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
     _ = ok
     return(bad != [], strict)
   end

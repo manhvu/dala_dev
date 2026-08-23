@@ -5,6 +5,8 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   # ── Push ────────────────────────────────────────────────────────────────────
 
+  @spec push(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, String.t()}
   def push(%Device{serial: udid}, local, remote, opts) do
     on_conflict = Keyword.get(opts, :on_conflict, :overwrite)
     progress? = Keyword.get(opts, :progress, false)
@@ -43,7 +45,7 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   defp push_dir(local, remote, on_conflict, progress?) do
     files = list_files(local)
-    if progress?, do: IO.puts("    #{length(files)} file(s) in directory")
+    if progress?, do: DalaDev.Output.info("    #{length(files)} file(s) in directory")
 
     case {File.exists?(remote), on_conflict} do
       {true, :skip} ->
@@ -63,6 +65,8 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   # ── Pull ────────────────────────────────────────────────────────────────────
 
+  @spec pull(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, String.t()}
   def pull(%Device{serial: udid}, remote, local, opts) do
     on_conflict = Keyword.get(opts, :on_conflict, :overwrite)
     progress? = Keyword.get(opts, :progress, false)
@@ -102,7 +106,7 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   defp pull_dir(remote, local, progress?) do
     files = list_files(remote)
-    if progress?, do: IO.puts("    #{length(files)} remote file(s)")
+    if progress?, do: DalaDev.Output.info("    #{length(files)} remote file(s)")
     File.mkdir_p!(local)
     cp_r(remote, local)
     {:ok, "pulled directory (#{length(files)} file(s)) to #{local}"}
@@ -110,6 +114,7 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   # ── Ls ──────────────────────────────────────────────────────────────────────
 
+  @spec ls(Device.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def ls(%Device{serial: udid}, remote_path) do
     bundle = DalaDev.Config.bundle_id()
     docs_dir = sim_docs_dir(udid, bundle)
@@ -129,6 +134,8 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   # ── Sync ────────────────────────────────────────────────────────────────────
 
+  @spec sync(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, [{:push | :pull | :delete, String.t()}]} | {:error, String.t()}
   def sync(%Device{serial: udid}, local, remote, opts) do
     delete? = Keyword.get(opts, :delete, false)
     dry_run? = Keyword.get(opts, :dry_run, false)
@@ -181,13 +188,7 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
 
   defp unique, do: :erlang.unique_integer([:positive])
 
-  defp list_files(dir) do
-    dir
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.map(fn p -> {Path.relative_to(p, dir), p} end)
-  end
+  defp list_files(dir), do: DalaDev.FileTransfer.Sync.list_files(dir)
 
   defp cp_r(source, dest) do
     if File.dir?(source),
@@ -199,43 +200,14 @@ defmodule DalaDev.FileTransfer.Platform.Simulator do
         )
   end
 
-  defp compute_sync_actions(local_map, remote_map, delete?) do
-    local_keys = Map.keys(local_map) |> MapSet.new()
-    remote_keys = Map.keys(remote_map) |> MapSet.new()
-    push_keys = MapSet.difference(local_keys, remote_keys)
-    only_remote = MapSet.difference(remote_keys, local_keys)
-    delete_actions = if delete?, do: Enum.map(only_remote, &{:delete, &1}), else: []
-
-    update_actions =
-      Enum.flat_map(MapSet.intersection(local_keys, remote_keys), fn key ->
-        local_stat = Map.get(local_map, key)
-        {remote_size, remote_mtime} = Map.get(remote_map, key)
-
-        cond do
-          local_stat.size != remote_size ->
-            [{:push, key}]
-
-          is_integer(local_stat.mtime) and is_integer(remote_mtime) and
-              local_stat.mtime > remote_mtime ->
-            [{:push, key}]
-
-          is_integer(remote_mtime) and is_integer(local_stat.mtime) and
-              remote_mtime > local_stat.mtime ->
-            [{:pull, key}]
-
-          true ->
-            []
-        end
-      end)
-
-    Enum.map(push_keys, &{:push, &1}) ++ update_actions ++ delete_actions
-  end
+  defp compute_sync_actions(local_map, remote_map, delete?),
+    do: DalaDev.FileTransfer.Sync.compute_actions(local_map, remote_map, delete?)
 
   defp print_actions(actions) do
     Enum.each(actions, fn
-      {:push, path} -> IO.puts("    #{IO.ANSI.cyan()}PUSH#{IO.ANSI.reset()}  #{path}")
-      {:pull, path} -> IO.puts("    #{IO.ANSI.yellow()}PULL#{IO.ANSI.reset()}  #{path}")
-      {:delete, path} -> IO.puts("    #{IO.ANSI.red()}DELETE#{IO.ANSI.reset()}  #{path}")
+      {:push, path} -> DalaDev.Output.info("    PUSH  #{path}")
+      {:pull, path} -> DalaDev.Output.info("    PULL  #{path}")
+      {:delete, path} -> DalaDev.Output.info("    DELETE  #{path}")
     end)
   end
 end

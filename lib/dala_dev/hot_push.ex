@@ -59,7 +59,7 @@ defmodule DalaDev.HotPush do
   end
 
   @doc """
-  Pushes all compiled BEAM files from `_build/dev/lib/*/ebin/` to `nodes`.
+  Pushes all compiled BEAM files from the current environment's build directory (`_build/<env>/lib/*/ebin/`) to `nodes`.
 
   Only pushes BEAMs for runtime dependencies — deps marked `only: :dev` or
   `runtime: false` in `mix.exs` (and their transitive deps) are excluded.
@@ -116,6 +116,18 @@ defmodule DalaDev.HotPush do
   """
   @spec push_changed([node()], %{String.t() => non_neg_integer()}) :: {non_neg_integer(), list()}
   def push_changed(nodes, snapshot) do
+    {pushed, failed, _modules} = push_changed_detailed(nodes, snapshot)
+    {pushed, failed}
+  end
+
+  @doc """
+  Like `push_changed/2` but also returns the list of pushed module names.
+  Returns `{pushed_count, failed_list, module_names}` — used by `mix dala.watch`
+  to show exactly what was hot-pushed on each save.
+  """
+  @spec push_changed_detailed([node()], %{String.t() => non_neg_integer()}) ::
+          {non_neg_integer(), list(), [module()]}
+  def push_changed_detailed(nodes, snapshot) do
     beams =
       runtime_beam_paths()
       |> Enum.filter(fn path ->
@@ -128,10 +140,16 @@ defmodule DalaDev.HotPush do
         current_mtime != Map.get(snapshot, path, 0)
       end)
 
-    push_beams(nodes, beams)
+    push_beams_detailed(nodes, beams)
   end
 
   # ── Runtime dep filtering ────────────────────────────────────────────────────
+
+  # Build path for the current Mix environment. Never hardcode `_build/dev` —
+  # running under MIX_ENV=test or prod must not silently push nothing.
+  defp build_lib_dir do
+    Path.join([Mix.Project.build_path(), "lib"])
+  end
 
   # Returns only BEAM paths that belong to the app's runtime dependency tree.
   # Excludes deps marked only: :dev or runtime: false in mix.exs, and all of
@@ -139,7 +157,7 @@ defmodule DalaDev.HotPush do
   defp runtime_beam_paths do
     runtime = runtime_lib_names()
 
-    Path.wildcard("_build/dev/lib/*/ebin/*.beam")
+    Path.wildcard(Path.join(build_lib_dir(), "*/ebin/*.beam"))
     |> Enum.filter(fn path ->
       lib = path |> Path.split() |> Enum.at(-3)
       MapSet.member?(runtime, lib)
@@ -153,12 +171,13 @@ defmodule DalaDev.HotPush do
   @spec runtime_beam_dirs() :: [String.t()]
   def runtime_beam_dirs do
     runtime = runtime_lib_names()
+    lib_dir = build_lib_dir()
 
-    case File.ls("_build/dev/lib") do
+    case File.ls(lib_dir) do
       {:ok, libs} ->
         libs
         |> Enum.filter(&MapSet.member?(runtime, &1))
-        |> Enum.map(&"_build/dev/lib/#{&1}/ebin")
+        |> Enum.map(&Path.join([lib_dir, &1, "ebin"]))
         |> Enum.filter(&File.dir?/1)
 
       {:error, _} ->
@@ -181,11 +200,11 @@ defmodule DalaDev.HotPush do
   end
 
   # Expand a set of lib names to include their transitive OTP deps,
-  # by reading each lib's .app file in _build/dev.
+  # by reading each lib's .app file in the current env's build dir.
   defp expand_runtime_libs(libs) do
     new_libs =
       Enum.flat_map(libs, fn lib ->
-        case Path.wildcard("_build/dev/lib/#{lib}/ebin/*.app") do
+        case Path.wildcard(Path.join(build_lib_dir(), "#{lib}/ebin/*.app")) do
           [app_file | _] ->
             case :file.consult(String.to_charlist(app_file)) do
               {:ok, [{:application, _app, props}]} ->
@@ -230,6 +249,13 @@ defmodule DalaDev.HotPush do
   defp push_beams(_nodes, []), do: {0, []}
 
   defp push_beams(nodes, beam_files) do
+    {pushed, failed, _} = push_beams_detailed(nodes, beam_files)
+    {pushed, failed}
+  end
+
+  defp push_beams_detailed(_nodes, []), do: {0, [], []}
+
+  defp push_beams_detailed(nodes, beam_files) do
     results =
       Enum.map(beam_files, fn path ->
         module = beam_path_to_module(path)
@@ -240,9 +266,11 @@ defmodule DalaDev.HotPush do
         end
       end)
 
-    pushed = Enum.count(results, &match?(:ok, &1))
+    pushed_modules =
+      for {:ok, module} <- results, do: module
+
     failed = for {:error, pair} <- results, do: pair
-    {pushed, failed}
+    {length(pushed_modules), failed, pushed_modules}
   end
 
   defp load_on_nodes(nodes, module, path, binary) do
@@ -261,7 +289,7 @@ defmodule DalaDev.HotPush do
         end
       end)
 
-    if errors == [], do: :ok, else: {:error, {module, errors}}
+    if errors == [], do: {:ok, module}, else: {:error, {module, errors}}
   end
 
   defp beam_path_to_module(path) do

@@ -36,8 +36,14 @@ These are the commands users run via `mix dala.<task>`:
 
 **Device management**:
 - **`mix dala.devices`** — List discovered Android and iOS devices
-- **`mix dala.emulators`** — Manage and launch emulators/simulators
-- **`mix dala.screen`** — Capture screenshots, record video, preview screen
+- **`mix dala.emulators`** — Manage and launch emulators/simulators (`--recipe selinux-off`, `--emulator_args`)
+- **`mix dala.screen`** — Capture screenshots, record video, preview screen, screenshot baselines (`--baseline <name>`, `--compare <name>`)
+- **`mix dala.reset`** — Force-stop Dala app processes on devices (both packages), clear logcat; `--data` wipes app data
+- **`mix dala.shell`** — Shell into the app sandbox on a device (`run-as` / sim container), or run one-shot commands with `--exec`
+- **`mix dala.port`** — Show dala's port map per device and detect/kill host-side port squatters
+- **`mix dala.link`** — Open a URL / deep link on connected devices
+- **`mix dala.clipboard`** — Read or set the device clipboard (iOS Simulator)
+- **`mix dala.location`** — Spoof the device location on emulators/simulators
 
 **Build and release**:
 - **`mix dala.release`** — Build a signed iOS .ipa for App Store / TestFlight
@@ -64,6 +70,7 @@ These are the commands users run via `mix dala.<task>`:
 - **`mix dala.logs`** — Collect and stream logs from devices and cluster nodes
 - **`mix dala.trace`** — Distributed tracing for dala clusters
 - **`mix dala.bench`** — Run performance benchmarks on dala nodes
+- **`mix dala.env`** — Machine-readable snapshot of the dev environment (toolchains, project, devices; `--json`)
 
 **Dala framework tasks** (from the dala repo, available in Dala projects):
 - **`mix dala.verify`** — Verify Dala DSL definitions and project configuration (`--dsl`, `--components`, `--strict`)
@@ -96,6 +103,14 @@ These are the commands users run via `mix dala.<task>`:
 - **`DalaDev.Device`** — Unified device struct with common interface
 - **`DalaDev.Config`** — Configuration handling (dala.exs)
 - **`DalaDev.Utils`** — Centralized utility functions (regex compilation, ADB helpers)
+- **`DalaDev.AppReset`** — Force-stop app packages (incl. the `com.dala.<app>` wrapper), clear logcat, optional data wipe
+- **`DalaDev.DeviceShell`** — Command builders for shelling into an app's sandbox (`run-as`, sim container)
+- **`DalaDev.Ports`** — Per-device port map (EPMD/dist/LV) and host-side squatter detection
+- **`DalaDev.DeepLink`** — Open URLs / deep links on devices
+- **`DalaDev.DeviceClipboard`** — Device clipboard read/write (iOS Simulator)
+- **`DalaDev.LocationSpoof`** — Location spoofing on emulators/simulators
+- **`DalaDev.EnvSnapshot`** — Machine-readable dev-environment inventory
+- **`DalaDev.ScreenBaseline`** — Screenshot baselines for visual regression
 - **`DalaDev.Paths`** — Path resolution for OTP runtimes, SDKs, and build artifacts
 - **`DalaDev.CrashDump`** — Crash dump parsing and HTML report generation
 - **`DalaDev.Benchmark`** — Performance benchmarking utilities
@@ -676,6 +691,8 @@ Many of these functions contain parsing logic or platform-specific narrowing log
 - `DalaDev.NativeBuild.narrow_platforms_for_device/2` — Determines which platforms to build for based on device
 - `DalaDev.NativeBuild.ios_toolchain_available?/0` — Checks if iOS cross-compile toolchain is installed
 - `DalaDev.NativeBuild.read_sdk_dir/1` — Reads SDK directory paths from configuration
+- `DalaDev.NativeBuild.ios_build_targets/1` — Pure decision for `--all` fan-out: returns `[:physical | :sim]` targets from toolchain/sim-script/physical-UDID inputs
+- `DalaDev.NativeBuild.__load_config_in__/1` — Like `__load_config__/0` but reads dala.exs from an explicit dir (test seam — avoids VM-global `File.cd!`)
 
 ### OTP Management
 
@@ -731,10 +748,53 @@ Many of these functions contain parsing logic or platform-specific narrowing log
 **Config utilities**:
 - `DalaDev.Config.bundle_id/0` — Resolves app bundle ID
 - `DalaDev.Config.load_dala_config/0` — Reads dala.exs configuration
+- `DalaDev.Config.load_dala_config_from/1` — Same, from an explicit project dir (test seam — avoids VM-global `File.cd!`)
 
 **Connection**:
 - `DalaDev.Connector.start_epmd/0` — Starts EPMD daemon (public for testing)
 - `DalaDev.Connector.handle_dist_start/2` — Handles Node.start result (public for testing)
+
+### Device Control Utilities
+
+**App reset (pure command builders + dispatch)**:
+- `DalaDev.AppReset.android_packages/1` — Packages to stop: project bundle id + `com.dala.<app>` wrapper, deduplicated
+- `DalaDev.AppReset.android_stop_commands/2` — adb arg lists to force-stop packages and clear logcat
+- `DalaDev.AppReset.android_clear_data_commands/2` — adb arg lists for `pm clear`
+- `DalaDev.AppReset.ios_sim_commands/3` — simctl arg lists (terminate both bundles, optional uninstall)
+
+**Device shell**:
+- `DalaDev.DeviceShell.resolve_target/1` — Resolves a device ID into a shell target (`{:android, serial}` / `{:ios_simulator, udid}` / `{:ios_physical, udid}`)
+- `DalaDev.DeviceShell.open_command/2`, `exec_command/3` — Pure command builders; return `{:shell | :dir | :exec, cmd}` or `:unsupported`
+
+**Ports**:
+- `DalaDev.Ports.port_map/1` — Expected port map (EPMD/dist/LV); takes a device-lister override (test seam)
+- `DalaDev.Ports.liveview_port/0` — Hash-based LV port formula matching dala's allocation
+- `DalaDev.Ports.listeners_on/1` — Host PIDs listening on a port (lsof)
+- `DalaDev.Ports.kill_pids/1` — Kills host PIDs
+
+**Deep links / clipboard / location (pure builders + dispatch)**:
+- `DalaDev.DeepLink.valid_url?/1`, `android_open_command/2`, `ios_open_command/2`; `open_devices/3` dispatch seam (`opts[:exec]` overrides tagged `{:adb,args}`/`{:xcrun,args}` execution)
+- `DalaDev.DeviceClipboard.ios_get_command/1`, `ios_put_command/2`; get/put accept `opts[:devices]` + `opts[:exec]`
+- `DalaDev.LocationSpoof.parse_coords/1` — Validates/parses `<lat>,<lng>` with range checks
+- `DalaDev.LocationSpoof.android_set_command/3` (longitude-first!), `ios_set_command/3`, `ios_clear_command/1`; set/clear accept `opts[:devices]` + `opts[:exec]`
+
+**Environment snapshot**:
+- `DalaDev.EnvSnapshot.collect/0`, `collect_json/0` — Full dev-environment inventory
+- `DalaDev.EnvSnapshot.parse_adb_version/1` (both banner layouts), `parse_xcrun_version/1`, `parse_emulator_version/1` — Version extraction from tool output
+
+**Screenshot baselines**:
+- `DalaDev.ScreenBaseline.baseline_path/2`, `diff_path/2`, `device_dir/1` — Storage layout under `.dala/screenshots/<device>/`
+- `DalaDev.ScreenBaseline.save/3`, `compare/3` — Capture-and-store / capture-and-compare (`opts[:capture]` overrides the capture call for tests)
+- `DalaDev.ScreenBaseline.compare_bytes/2` — Pure byte comparison (`:match` | `{:changed, size_a, size_b}`)
+
+**Emulator recipes**:
+- `DalaDev.Emulators.recipes/0`, `recipe_args/1` — Named Android launch presets
+- `Mix.Tasks.Dala.Emulators.split_flags/1` — Splits `--emulator_args` strings, keeping quoted runs together
+
+**Task render seams** (thin tasks delegate rendering to these so tests don't need devices):
+- `Mix.Tasks.Dala.Port.report/2`, `print_table/1`, `entry_json/1`, `kill_squatters/1`
+- `Mix.Tasks.Dala.Reset.report/2` (results + JSON), `Mix.Tasks.Dala.Link.report/1`
+- `Mix.Tasks.Dala.Env.print_summary/1`, `Mix.Tasks.Dala.Shell.handle_plan/4`
 
 ### Paths
 
@@ -747,8 +807,26 @@ Many of these functions contain parsing logic or platform-specific narrowing log
 
 **Shared utilities**:
 - `DalaDev.Utils.compile_regex/2` — Centralized regex compilation
-- `DalaDev.Utils.run_adb_with_timeout/2` — ADB command with timeout protection
+- `DalaDev.Utils.run_adb_with_timeout/2` — ADB command with timeout protection (runs `adb` directly with no shell, kills the process on timeout; works on macOS/Linux/Windows without GNU `timeout`; `opts[:exec]` overrides execution — test seam)
 - `DalaDev.Utils.parse_adb_devices_output/1` — Parses ADB devices output
+- `DalaDev.Utils.normalize_cli_args/1` — Rewrites underscored long flags (`--dry_run`) to hyphenated form before OptionParser; call at the top of every Mix task run/1
+
+### Output and CLI Ergonomics
+
+**Centralized output**:
+- `DalaDev.Output.configure/1` — Sets `--quiet` / `--json` mode (call at top of each Mix task)
+- `DalaDev.Output.step/2`, `info/1`, `success/1`, `warn/1`, `error/1`, `hint/1` — Semantic output helpers; use these instead of raw `IO.puts`
+- `DalaDev.Output.timed/2` — Wraps a long operation, prints elapsed time
+- `DalaDev.Output.format_elapsed/1`, `format_bytes/1` — Human-readable formatting
+
+**Dev server dependency guard**:
+- `DalaDev.ServerDeps.ensure_available!/0` — Raises with install hint when optional Phoenix deps are missing
+- `DalaDev.ServerDeps.available?/0` — Checks if dev-server deps are loadable
+
+**Deploy dry-run support**:
+- `DalaDev.Deployer.collect_beam_dirs/0` — Public for `mix dala.deploy --dry-run`
+- `DalaDev.Deployer.count_beams/1` — Public for `mix dala.deploy --dry-run`
+- `DalaDev.HotPush.push_changed_detailed/2` — Like `push_changed/2` but also returns pushed module names (used by `mix dala.watch`)
 
 ### Terminal UI (TUI)
 
@@ -759,6 +837,7 @@ Many of these functions contain parsing logic or platform-specific narrowing log
 - `DalaDev.Tui.Devices.list/0` — Lists all discovered devices with node metadata
 - `DalaDev.Tui.Devices.display_name/1` — Formats device for display
 - `DalaDev.Tui.Devices.status_icon/1` — Returns status icon for device
+- `DalaDev.Tui.Devices.from_device/1` — Converts a `DalaDev.Device` struct into a TUI device entry (test seam)
 - `DalaDev.Tui.Devices.summary/1` — Returns one-line device summary
 - `DalaDev.Tui.Remote.query/1` — Queries a remote node for version/memory/screen
 - `DalaDev.Tui.Remote.connected_nodes/0` — Lists connected distribution nodes
@@ -994,6 +1073,30 @@ When writing new code in dala_dev that references dala internals, use the **new 
 
 **Rule**: The TUI modules are compiled in all environments. If you want to make the TUI optional (dev-only), wrap it in a conditional compilation block or move it to `dev_tools/`.
 
+### 35. Phoenix Dev-Server Deps Are Optional
+
+**Problem**: `phoenix_live_view`, `bandit`, `phoenix_pubsub`, and `plug_crypto` are optional dependencies. CLI-only users shouldn't pull the Phoenix stack, but `mix dala.server` / `mix dala.web` need them.
+
+**Solution**: Server tasks call `DalaDev.ServerDeps.ensure_available!/0` before starting, which raises with an install hint instead of a cryptic module-not-found error.
+
+**Rule**: Any new task that touches Phoenix/Bandit must call `ensure_available!/0` first. Don't reference Phoenix modules at compile time outside `lib/dala_dev/server/`.
+
+### 36. Use `DalaDev.Output` for All User-Facing Output
+
+**Problem**: Raw `IO.puts` with inline ANSI codes is inconsistent, untestable, and can't be suppressed.
+
+**Solution**: `DalaDev.Output` provides semantic helpers (`step/2`, `info/1`, `success/1`, `warn/1`, `error/1`, `hint/1`) plus `--quiet`/`--json` modes via `configure/1`.
+
+**Rule**: Each Mix task calls `DalaDev.Output.configure(quiet: opts[:quiet], json: opts[:json])` at the top. Never use raw `IO.puts` for user-facing messages in `lib/dala_dev/` modules.
+
+### 37. OptionParser Silently Drops Underscored Long Flags
+
+**Problem**: Current Elixir releases only recognize hyphenated long options (`--dry-run`). Passing a documented underscored flag like `--dry_run`, `--on_conflict`, or `--beam_flags` is **silently ignored**: the token is swallowed, its value becomes a positional arg, and no invalid-option entry is reported. Safety-relevant flags (e.g. `push_file --on_conflict skip|rename`) were being dropped without any error.
+
+**Solution**: Every Mix task that parses options calls `DalaDev.Utils.normalize_cli_args(args)` as the first statement of `run/1`. It rewrites `--flag_name` and `--flag_name=value` tokens to hyphenated form so both spellings parse identically; values are never touched.
+
+**Rule**: New Mix tasks must normalize argv before `OptionParser.parse/2`. Declare switches with underscore keys (OptionParser normalizes parsed keys back to underscores), keep usage strings showing the underscore spelling users know, and add a regression test that passes the underscore flag through `run/1`.
+
 **Remember**: If you make any of these private, every downstream test breaks loudly. But worse, you'll lose the ability to evolve the parsers safely through refactoring with test coverage.
 
 ## Key Files and Their Purposes
@@ -1044,7 +1147,7 @@ When writing new code in dala_dev that references dala internals, use the **new 
 - `lib/dala_dev/tui/views/help_overlay.ex` — Help overlay rendering
 
 **Other**:
-- `lib/dala_dev/emulators.ex` — Emulator lifecycle management
+- `lib/dala_dev/emulators.ex` — Emulator lifecycle management (incl. named launch recipes)
 - `lib/dala_dev/qr.ex` — QR code generation
 - `lib/dala_dev/release.ex` — Release build utilities
 - `lib/dala_dev/icon_generator.ex` — Icon generation for Android/iOS
@@ -1071,7 +1174,13 @@ When writing new code in dala_dev that references dala internals, use the **new 
 
 **Device management**:
 - `lib/mix/tasks/dala.devices.ex` — `mix dala.devices` for listing devices
-- `lib/mix/tasks/dala.screen.ex` — `mix dala.screen` for screenshots/video
+- `lib/mix/tasks/dala.screen.ex` — `mix dala.screen` for screenshots/video/baselines
+- `lib/mix/tasks/dala.reset.ex` — `mix dala.reset` for app force-stop / data wipe
+- `lib/mix/tasks/dala.shell.ex` — `mix dala.shell` for app-sandbox shells
+- `lib/mix/tasks/dala.port.ex` — `mix dala.port` for the port map and squatters
+- `lib/mix/tasks/dala.link.ex` — `mix dala.link` for deep links
+- `lib/mix/tasks/dala.clipboard.ex` — `mix dala.clipboard` for device clipboard
+- `lib/mix/tasks/dala.location.ex` — `mix dala.location` for location spoofing
 
 **Build and release**:
 - `lib/mix/tasks/dala.release.ex` — `mix dala.release` for iOS .ipa builds
@@ -1098,6 +1207,7 @@ When writing new code in dala_dev that references dala internals, use the **new 
 - `lib/mix/tasks/dala.logs.ex` — `mix dala.logs` for log collection
 - `lib/mix/tasks/dala.trace.ex` — `mix dala.trace` for distributed tracing
 - `lib/mix/tasks/dala.bench.ex` — `mix dala.bench` for performance benchmarks
+- `lib/mix/tasks/dala.env.ex` — `mix dala.env` for the machine-readable env snapshot
 
 **Dala framework tasks** (from the dala repo, available in Dala projects):
 - `lib/mix/tasks/dala.verify.ex` — `mix dala.verify` for DSL verification

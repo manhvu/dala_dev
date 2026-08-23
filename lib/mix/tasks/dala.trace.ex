@@ -37,6 +37,9 @@ defmodule Mix.Tasks.Dala.Trace do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     Mix.Task.run("app.config")
 
     {parsed_opts, _} =
@@ -69,27 +72,27 @@ defmodule Mix.Tasks.Dala.Trace do
     trace_opts =
       if functions != [], do: Keyword.put(trace_opts, :functions, functions), else: trace_opts
 
-    IO.puts("Starting trace on nodes: #{inspect(nodes)}")
-    IO.puts("Duration: #{duration} seconds")
+    DalaDev.Output.info("Starting trace on nodes: #{inspect(nodes)}")
+    DalaDev.Output.info("Duration: #{duration} seconds")
 
     case Tracing.start_trace(nodes, trace_opts) do
       {:ok, trace_id} ->
-        IO.puts("Trace started with ID: #{inspect(trace_id)}")
+        DalaDev.Output.success("Trace started with ID: #{inspect(trace_id)}")
 
         Process.sleep(duration * 1000)
 
-        IO.puts("Collecting traces...")
+        DalaDev.Output.step("Collecting traces")
 
         traces = Tracing.get_events(trace_id)
-        IO.puts("Collected #{length(traces)} trace events")
+        DalaDev.Output.info("Collected #{length(traces)} trace events")
 
         if export_path do
           case Tracing.export_chrome_trace(trace_id, export_path) do
             :ok ->
-              IO.puts("Exported to: #{export_path}")
+              DalaDev.Output.success("Exported to: #{export_path}")
 
             error ->
-              IO.puts("Export failed: #{inspect(error)}")
+              DalaDev.Output.error("Export failed: #{inspect(error)}")
           end
         else
           print_traces(traces)
@@ -98,7 +101,7 @@ defmodule Mix.Tasks.Dala.Trace do
         Tracing.stop_trace(trace_id)
 
       {:error, reason} ->
-        IO.puts("Failed to start trace: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to start trace: #{inspect(reason)}")
     end
   end
 
@@ -124,7 +127,7 @@ defmodule Mix.Tasks.Dala.Trace do
 
   defp print_traces(traces) do
     Enum.each(traces, fn trace ->
-      IO.puts("[#{trace[:type]}] #{trace[:module]}.#{trace[:function]} - #{trace[:pid]}")
+      DalaDev.Output.info("[#{trace[:type]}] #{trace[:module]}.#{trace[:function]} - #{trace[:pid]}")
     end)
   end
 end

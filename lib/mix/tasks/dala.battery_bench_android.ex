@@ -123,6 +123,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
     if opts[:dry_run] do
@@ -149,14 +151,14 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     pkg = DalaDev.Config.bundle_id()
     app = app_name()
 
-    IO.puts("")
-    IO.puts("=== Dala Battery Benchmark ===")
-    IO.puts("")
-    IO.puts("  Device:   #{device}")
-    IO.puts("  Package:  #{pkg}")
-    IO.puts("  Duration: #{duration}s (#{div(duration, 60)} min)")
-    IO.puts("  Mode:     #{describe_mode(opts)}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Battery Benchmark")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Device:   #{device}")
+    DalaDev.Output.info("Package:  #{pkg}")
+    DalaDev.Output.info("Duration: #{duration}s (#{div(duration, 60)} min)")
+    DalaDev.Output.info("Mode:     #{describe_mode(opts)}")
+    DalaDev.Output.info("")
 
     unless adb_ok?(device) do
       Mix.raise("Cannot reach device #{device}. Check: adb connect #{device}")
@@ -167,15 +169,15 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     unless no_build do
       {extra_cpp_flags, header_dir} = resolve_build_flags(opts)
 
-      IO.puts("=== Building APK ===")
+      DalaDev.Output.step("Building APK")
       build_apk(extra_cpp_flags, header_dir)
 
-      IO.puts("=== Installing APK ===")
+      DalaDev.Output.step("Installing APK")
       apk = "android/app/build/outputs/apk/debug/app-debug.apk"
       unless File.exists?(apk), do: Mix.raise("APK not found at #{apk}. Build may have failed.")
       install_apk(device, apk, pkg)
 
-      IO.puts("=== Pushing BEAMs ===")
+      DalaDev.Output.step("Pushing BEAMs")
       Mix.Task.run("compile")
       push_beams(device, pkg, app)
 
@@ -186,12 +188,12 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     # ── Pre-run checks ─────────────────────────────────────────────────────────
 
     battery_pct = read_battery_pct(device)
-    IO.puts("")
-    IO.puts("Battery level: #{battery_pct}%")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Battery level: #{battery_pct}%")
 
     if battery_pct < 80 do
-      IO.puts("WARNING: Battery below 80%. Charge to >90% for comparable results.")
-      IO.puts("Continue? (y/N)")
+      DalaDev.Output.warn("Battery below 80%. Charge to >90% for comparable results.")
+      DalaDev.Output.info("Continue? (y/N)")
 
       case prompt_yn("") do
         "y" -> :ok
@@ -206,11 +208,11 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     # tcpip/connect dance manually.
     device = ensure_wifi_adb!(device)
 
-    IO.puts("")
-    IO.puts("==========================================")
-    IO.puts("  Unplug the USB cable now if connected.")
-    IO.puts("  Press Enter when ready to start the run.")
-    IO.puts("==========================================")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("==========================================")
+    DalaDev.Output.info("Unplug the USB cable now if connected.")
+    DalaDev.Output.info("Press Enter when ready to start the run.")
+    DalaDev.Output.info("==========================================")
     wait_for_enter()
 
     unless adb_ok?(device) do
@@ -232,13 +234,13 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
     # ── Benchmark ──────────────────────────────────────────────────────────────
 
-    IO.puts("")
-    IO.puts("=== Resetting battery stats ===")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Resetting battery stats")
     adb!(device, ~w[shell dumpsys batterystats --reset])
     :timer.sleep(2000)
 
     start_mah = read_charge_counter_mah(device)
-    IO.puts("Start charge: #{start_mah} mAh")
+    DalaDev.Output.info("Start charge: #{start_mah} mAh")
 
     # ── Set up adb tunnels BEFORE launching the app ─────────────────────
     # The BEAM tries to register with Mac's EPMD via 127.0.0.1:4369 during
@@ -248,8 +250,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     # will (correctly) report "BEAM never registered".
     ensure_tunnels(device)
 
-    IO.puts("")
-    IO.puts("=== Launching app ===")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Launching app")
     adb!(device, ~w[shell am start -n #{pkg}/#{@android_activity}])
     :timer.sleep(3000)
 
@@ -277,14 +279,14 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
         try_connect_with_retry(bare_node, 2_000)
 
     if active_node && opts[:no_keep_alive] != true do
-      IO.puts("  Starting background keep-alive...")
+      DalaDev.Output.step("Starting background keep-alive...")
       :rpc.call(active_node, :dala_nif, :background_keep_alive, [], 5000)
     end
 
     # ── Preflight ──────────────────────────────────────────────────────────
     unless opts[:skip_preflight] do
-      IO.puts("")
-      IO.puts("=== Preflight checks ===")
+      DalaDev.Output.info("")
+      DalaDev.Output.step("Preflight checks")
 
       preflight_results =
         Preflight.run(
@@ -297,11 +299,11 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
           require_keep_alive: opts[:no_keep_alive] != true
         )
 
-      IO.puts(Preflight.pretty(preflight_results))
+      DalaDev.Output.info(Preflight.pretty(preflight_results))
 
       unless Preflight.all_ok?(preflight_results) do
-        IO.puts("")
-        IO.puts(">>> Preflight reported issues. Continue anyway? (y/N)")
+        DalaDev.Output.info("")
+        DalaDev.Output.warn("Preflight reported issues. Continue anyway? (y/N)")
 
         case IO.gets("") |> String.trim() do
           "y" -> :ok
@@ -312,9 +314,9 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
     screen_off(device)
 
-    IO.puts("")
-    IO.puts("Running for #{div(duration, 60)} min — do not touch the phone...")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Running for #{div(duration, 60)} min — do not touch the phone...")
+    DalaDev.Output.info("")
 
     total_min = div(duration, 60)
     start_time = System.monotonic_time(:second)
@@ -333,7 +335,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
               "run_android_#{System.os_time(:second)}.csv"
             ])
 
-        IO.puts("  Logging samples to #{log_path}")
+        DalaDev.Output.info("Logging samples to #{log_path}")
         Logger.open(log_path, start_ts_ms: System.monotonic_time(:millisecond))
       end
 
@@ -343,7 +345,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
       DeviceObserver.subscribe(active_node, categories: [:app, :display, :memory])
 
     if observer.subscribed? do
-      IO.puts("  Subscribed to Dala.Device.Device events on #{inspect(active_node)}")
+      DalaDev.Output.info("Subscribed to Dala.Device.Device events on #{inspect(active_node)}")
     end
 
     {final_log, _final_reconnector, _final_observer} =
@@ -374,8 +376,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
     # ── Results ────────────────────────────────────────────────────────────────
 
-    IO.puts("")
-    IO.puts("=== Collecting results ===")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Collecting results")
     adb!(device, ~w[shell am force-stop #{pkg}])
     :timer.sleep(1000)
 
@@ -389,36 +391,36 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
         do: Float.round(drain_mah * 3600 / elapsed_actual, 1),
         else: 0.0
 
-    IO.puts("")
-    IO.puts("=== Summary: #{describe_mode(opts)} ===")
-    IO.puts("")
-    IO.puts("  Duration:     #{div(elapsed_actual, 60)} min #{rem(elapsed_actual, 60)} sec")
-    IO.puts("  Start:        #{start_mah} mAh  (#{battery_pct}%)")
-    IO.puts("  End:          #{end_mah} mAh  (#{end_pct}%)")
-    IO.puts("  Drain:        #{drain_mah} mAh")
-    IO.puts("  Rate:         #{rate} mAh/hr")
-    IO.puts("")
-    IO.puts("Lower mAh/hr = better. No-BEAM baseline is ~200 mAh/hr on Moto G.")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Summary", describe_mode(opts))
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Duration:     #{div(elapsed_actual, 60)} min #{rem(elapsed_actual, 60)} sec")
+    DalaDev.Output.info("Start:        #{start_mah} mAh  (#{battery_pct}%)")
+    DalaDev.Output.info("End:          #{end_mah} mAh  (#{end_pct}%)")
+    DalaDev.Output.info("Drain:        #{drain_mah} mAh")
+    DalaDev.Output.info("Rate:         #{rate} mAh/hr")
+    DalaDev.Output.info("")
+    DalaDev.Output.hint("Lower mAh/hr = better. No-BEAM baseline is ~200 mAh/hr on Moto G.")
+    DalaDev.Output.info("")
 
     # ── CSV-based summary ───────────────────────────────────────────────
     if log do
       log_path = log.path
       Logger.close(log)
 
-      IO.puts("=== Probe-based summary ===")
-      IO.puts("")
+      DalaDev.Output.step("Probe-based summary")
+      DalaDev.Output.info("")
 
       try do
         metrics = Summary.from_csv(log_path)
-        IO.puts(Summary.pretty(metrics))
-        IO.puts("")
-        IO.puts("Full log: #{log_path}")
+        DalaDev.Output.info(Summary.pretty(metrics))
+        DalaDev.Output.info("")
+        DalaDev.Output.info("Full log: #{log_path}")
       rescue
-        e -> IO.puts("  (could not parse #{log_path}: #{Exception.message(e)})")
+        e -> DalaDev.Output.warn("(could not parse #{log_path}: #{Exception.message(e)})")
       end
 
-      IO.puts("")
+      DalaDev.Output.info("")
     end
   end
 
@@ -458,7 +460,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
           "  [#{ts}] #{elapsed_min}/#{opts[:total_min]} min — #{fragment} (#{pct}%)"
       end
 
-    IO.puts(line)
+    DalaDev.Output.info(line)
 
     now_ms = System.monotonic_time(:millisecond)
 
@@ -469,8 +471,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
         {:attempt, r} ->
           if opts[:node] && Node.connect(opts[:node]) do
-            IO.puts(
-              "    ↻ reconnected to #{opts[:node]} (attempt #{r.attempts}, total #{r.total_reconnects + 1})"
+            DalaDev.Output.success(
+              "↻ reconnected to #{opts[:node]} (attempt #{r.attempts}, total #{r.total_reconnects + 1})"
             )
 
             Reconnector.record_success(r)
@@ -492,19 +494,19 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     {cflags, header_dir} = resolve_build_flags(opts)
     if header_dir, do: File.rm_rf!(header_dir)
 
-    IO.puts("")
-    IO.puts("=== Dala Battery Benchmark (Android) — Dry Run ===")
-    IO.puts("")
-    IO.puts("  Device:   #{opts[:device] || "(auto-detect at run time)"}")
-    IO.puts("  Package:  #{pkg || "(NOT SET)"}")
-    IO.puts("  Duration: #{duration}s (#{div(duration, 60)} min)")
-    IO.puts("  Mode:     #{describe_mode(opts)}")
-    IO.puts("  Flags:    #{if cflags == "", do: "(default Nerves tuning)", else: cflags}")
-    IO.puts("  Build:    #{if opts[:no_build], do: "skip (--no-build)", else: "yes"}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Battery Benchmark (Android) — Dry Run")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Device:   #{opts[:device] || "(auto-detect at run time)"}")
+    DalaDev.Output.info("Package:  #{pkg || "(NOT SET)"}")
+    DalaDev.Output.info("Duration: #{duration}s (#{div(duration, 60)} min)")
+    DalaDev.Output.info("Mode:     #{describe_mode(opts)}")
+    DalaDev.Output.info("Flags:    #{if cflags == "", do: "(default Nerves tuning)", else: cflags}")
+    DalaDev.Output.info("Build:    #{if opts[:no_build], do: "skip (--no-build)", else: "yes"}")
+    DalaDev.Output.info("")
 
-    IO.puts("Dry run complete — no prerequisites checked, no device contacted.")
-    IO.puts("")
+    DalaDev.Output.success("Dry run complete — no prerequisites checked, no device contacted.")
+    DalaDev.Output.info("")
   end
 
   # ── Build flags ──────────────────────────────────────────────────────────────
@@ -566,7 +568,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
     unless File.exists?(gradlew), do: Mix.raise("gradlew not found at #{gradlew}")
 
-    IO.puts("  Running Gradle assembleDebug...")
+    DalaDev.Output.step("Running Gradle assembleDebug")
 
     args =
       ["assembleDebug", "-q"] ++
@@ -579,9 +581,9 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
   end
 
   defp install_apk(device, apk, pkg) do
-    IO.puts("  Stopping app...")
+    DalaDev.Output.info("Stopping app...")
     adb(device, ~w[shell am force-stop #{pkg}])
-    IO.puts("  Installing #{apk}...")
+    DalaDev.Output.info("Installing #{apk}...")
 
     # `adb install -r` replaces the APK in-place. It re-extracts native libs
     # to /data/app/<pkg>/lib/<abi>/ but preserves /data/data/<pkg>/, which is
@@ -618,13 +620,11 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
   # they'll need to rerun `mix dala.deploy --native` to restore ERTS before
   # launching the app again.
   defp handle_install_failure(device, apk, pkg, reason) do
-    IO.puts(
-      "  #{IO.ANSI.yellow()}⚠  install -r failed: #{String.slice(reason, 0, 200)}#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.warn("⚠  install -r failed: #{String.slice(reason, 0, 200)}")
 
-    IO.puts("     Falling back to full uninstall+install. This will erase the")
-    IO.puts("     OTP runtime in /data/data/#{pkg}/files/. After the bench finishes,")
-    IO.puts("     re-run `mix dala.deploy --native --device #{device}` to restore ERTS.")
+    DalaDev.Output.warn("Falling back to full uninstall+install. This will erase the")
+    DalaDev.Output.warn("OTP runtime in /data/data/#{pkg}/files/. After the bench finishes,")
+    DalaDev.Output.warn("re-run `mix dala.deploy --native --device #{device}` to restore ERTS.")
 
     adb(device, ~w[uninstall #{pkg}])
 
@@ -695,7 +695,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
   # ── Screen off ───────────────────────────────────────────────────────────────
 
   defp screen_off(device) do
-    IO.puts("=== Turning screen off ===")
+    DalaDev.Output.step("Turning screen off")
     # Check current state, press KEYCODE_POWER (26) to toggle off.
     # If it ended up on (was already off before), press again.
     adb!(device, ~w[shell input keyevent 26])
@@ -707,7 +707,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
       adb!(device, ~w[shell input keyevent 26])
     end
 
-    IO.puts("  Screen off.")
+    DalaDev.Output.success("Screen off.")
   end
 
   # ── Battery readings ─────────────────────────────────────────────────────────
@@ -773,7 +773,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
         out
 
       {:error, reason} ->
-        IO.puts("  adb warning: #{reason}")
+        DalaDev.Output.warn("adb warning: #{reason}")
         ""
     end
   end
@@ -802,7 +802,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
   defp wait_for_enter do
     case IO.gets("") do
       :eof ->
-        IO.puts("  (stdin not interactive — proceeding without confirmation)")
+        DalaDev.Output.info("(stdin not interactive — proceeding without confirmation)")
         :ok
 
       {:error, _} ->
@@ -848,8 +848,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
     case result do
       {:ok, pid, port, matched} ->
-        IO.puts("  ✓ App running on device (pid #{pid})")
-        IO.puts("  ✓ BEAM registered in EPMD as #{matched} (port #{port})")
+        DalaDev.Output.success("App running on device (pid #{pid})")
+        DalaDev.Output.success("BEAM registered in EPMD as #{matched} (port #{port})")
 
       {:error, :no_process, _state} ->
         Mix.raise(crash_diagnosis_no_process(device, pkg))
@@ -861,13 +861,13 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
       # battery readings. Warn loudly so the user knows BEAM-driven probes
       # (RPC, NIF version checks) won't work, then fall through.
       {:error, :stale_epmd, state} ->
-        IO.puts("  ✓ App running on device (pid #{state[:last_pid]})")
+        DalaDev.Output.success("App running on device (pid #{state[:last_pid]})")
 
-        IO.puts(
-          "  #{IO.ANSI.yellow()}⚠  EPMD has #{state[:matched_name]} at port #{state[:stale_port]} but Node.connect fails#{IO.ANSI.reset()}"
+        DalaDev.Output.warn(
+          "⚠  EPMD has #{state[:matched_name]} at port #{state[:stale_port]} but Node.connect fails"
         )
 
-        IO.puts(stale_epmd_recovery_hint(device, pkg))
+        DalaDev.Output.info(stale_epmd_recovery_hint(device, pkg))
     end
   end
 
@@ -996,14 +996,14 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
 
   defp do_try_connect(node, deadline, attempts) do
     if beam_reachable?(node) do
-      IO.puts("  BEAM connected: #{node}")
+      DalaDev.Output.success("BEAM connected: #{node}")
       node
     else
       if System.monotonic_time(:millisecond) < deadline do
         :timer.sleep(500)
         do_try_connect(node, deadline, attempts + 1)
       else
-        IO.puts("  (BEAM not reachable after #{attempts + 1} attempts — USB-only readings)")
+        DalaDev.Output.warn("(BEAM not reachable after #{attempts + 1} attempts — USB-only readings)")
 
         nil
       end
@@ -1186,13 +1186,13 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
   end
 
   defp promote_usb_to_wifi!(serial) do
-    IO.puts("")
-    IO.puts("=== Switching to WiFi ADB ===")
-    IO.puts("  Finding device WiFi IP...")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Switching to WiFi ADB")
+    DalaDev.Output.info("Finding device WiFi IP...")
     ip = wifi_ip_for_serial!(serial)
-    IO.puts("  Device IP: #{ip}")
+    DalaDev.Output.info("Device IP: #{ip}")
 
-    IO.puts("  Enabling WiFi ADB on port 5555...")
+    DalaDev.Output.step("Enabling WiFi ADB on port 5555")
 
     case System.cmd("adb", ["-s", serial, "tcpip", "5555"], stderr_to_stdout: true) do
       {_, 0} ->
@@ -1213,14 +1213,14 @@ defmodule Mix.Tasks.Dala.BatteryBenchAndroid do
     :timer.sleep(2_000)
 
     new_device = "#{ip}:5555"
-    IO.puts("  Connecting to #{new_device}...")
+    DalaDev.Output.info("Connecting to #{new_device}...")
 
     case System.cmd("adb", ["connect", new_device], stderr_to_stdout: true) do
       {out, 0} ->
         if String.contains?(out, "connected") or String.contains?(out, "already connected") do
           # Verify it actually works.
           if adb_ok?(new_device) do
-            IO.puts("  ✓ WiFi ADB connected as #{new_device}")
+            DalaDev.Output.success("WiFi ADB connected as #{new_device}")
             new_device
           else
             Mix.raise("""

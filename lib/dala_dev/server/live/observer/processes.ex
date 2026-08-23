@@ -9,6 +9,9 @@ defmodule DalaDev.Server.ObserverLive.Processes do
   @refresh_interval 5_000
   @page_size 100
 
+  @impl true
+  @spec mount(term(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(@refresh_interval, self(), :refresh)
@@ -30,9 +33,12 @@ defmodule DalaDev.Server.ObserverLive.Processes do
     {:ok, fetch_processes(socket)}
   end
 
+  @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(%{"node" => node_str}, _uri, socket) do
     try do
-      node = String.to_existing_atom(":#{node_str}")
+      node = node_str |> String.trim_leading(":") |> String.to_existing_atom()
       {:noreply, assign(socket, :node, node) |> fetch_processes()}
     rescue
       _ -> {:noreply, assign(socket, :error, "Invalid node name: #{node_str}")}
@@ -41,13 +47,19 @@ defmodule DalaDev.Server.ObserverLive.Processes do
 
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
+  @impl true
+  @spec handle_info(term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_info(:refresh, socket), do: {:noreply, fetch_processes(socket)}
 
+  @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("refresh", _params, socket), do: {:noreply, fetch_processes(socket)}
 
   def handle_event("select_node", %{"node" => node_str}, socket) do
     try do
-      node = String.to_existing_atom(node_str)
+      node = node_str |> String.trim_leading(":") |> String.to_existing_atom()
       {:noreply, assign(socket, :node, node) |> fetch_processes()}
     rescue
       _ -> {:noreply, assign(socket, :error, "Invalid node: #{node_str}")}
@@ -80,6 +92,8 @@ defmodule DalaDev.Server.ObserverLive.Processes do
     {:noreply, assign(socket, :selected_pid, pid_str)}
   end
 
+  @impl true
+  @spec render(Phoenix.LiveView.Socket.assigns()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="p-6 max-w-7xl mx-auto">
@@ -301,6 +315,9 @@ defmodule DalaDev.Server.ObserverLive.Processes do
   defp format_bytes(nil), do: "0 B"
   defp format_bytes(bytes) when bytes < 1024, do: "#{bytes} B"
   defp format_bytes(bytes) when bytes < 1024 * 1024, do: "#{Float.round(bytes / 1024, 1)} KB"
+
+  defp format_bytes(bytes) when bytes < 1024 * 1024 * 1024,
+    do: "#{Float.round(bytes / (1024 * 1024), 1)} MB"
 
   defp format_bytes(bytes), do: "#{Float.round(bytes / (1024 * 1024 * 1024), 1)} GB"
 

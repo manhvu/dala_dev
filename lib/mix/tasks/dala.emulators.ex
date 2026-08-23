@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Dala.Emulators do
 
       mix dala.emulators --start --id Pixel_8_API_34
       mix dala.emulators --start --id 78354490
+      mix dala.emulators --start --id Pixel_8_API_34 --recipe selinux-off
+      mix dala.emulators --start --id Pixel_8_API_34 --emulator_args "-no-audio -gpu host"
 
       mix dala.emulators --stop --id emulator-5554
       mix dala.emulators --stop --id 78354490
@@ -22,6 +24,19 @@ defmodule Mix.Tasks.Dala.Emulators do
 
   `--id` accepts the same display IDs `mix dala.devices` shows, plus AVD
   names. For Android the running serial (`emulator-5554`) also works.
+
+  ## Launch recipes (Android)
+
+    * `selinux-off` — boot with SELinux disabled; workaround for the Android
+      17 preview where BEAM startup dies on cgroup SELinux denials.
+      Dev-only, never on real hardware.
+    * `cold-boot` — skip quick-boot state (`-no-snapshot`)
+    * `wipe-data` — start with wiped userdata (`-wipe-data`, destructive)
+    * `no-audio` — `-no-audio`
+    * `gpu-host` — use host GPU (`-gpu host`)
+
+  Free-form extra flags: `--emulator_args "-flag value ..."`.
+  Recipes and flags combine when both are given.
 
   Out of scope: creating new AVDs or installing simulator runtimes — those
   involve license acceptance and multi-GB downloads. Use Android Studio /
@@ -37,11 +52,15 @@ defmodule Mix.Tasks.Dala.Emulators do
     android: :boolean,
     ios: :boolean,
     id: :string,
-    all: :boolean
+    all: :boolean,
+    recipe: :string,
+    emulator_args: :string
   ]
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
     cond do
@@ -60,36 +79,36 @@ defmodule Mix.Tasks.Dala.Emulators do
     show_android = android? or (not android? and not ios?)
     show_ios = ios? or (not android? and not ios?)
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     if show_android do
       print_android_section()
-      IO.puts("")
+      DalaDev.Output.info("")
     end
 
     if show_ios do
       print_ios_section()
-      IO.puts("")
+      DalaDev.Output.info("")
     end
   end
 
   defp print_android_section do
-    IO.puts("#{cyan()}Android emulators (AVDs)#{reset()}")
+    DalaDev.Output.step("Android emulators (AVDs)")
 
     case Emulators.list_android() do
       {:ok, []} ->
-        IO.puts("  (no AVDs configured — create one in Android Studio)")
+        DalaDev.Output.info("  (no AVDs configured — create one in Android Studio)")
 
       {:ok, avds} ->
         Enum.each(avds, &print_avd/1)
 
       {:error, reason} ->
-        IO.puts("  #{yellow()}#{reason}#{reset()}")
+        DalaDev.Output.warn("#{reason}")
     end
   end
 
   defp print_ios_section do
-    IO.puts("#{cyan()}iOS simulators#{reset()}")
+    DalaDev.Output.step("iOS simulators")
 
     case Emulators.list_ios() do
       {:ok, sims} ->
@@ -99,24 +118,22 @@ defmodule Mix.Tasks.Dala.Emulators do
         |> Enum.each(&print_sim/1)
 
       {:error, reason} ->
-        IO.puts("  #{yellow()}#{reason}#{reset()}")
+        DalaDev.Output.warn("#{reason}")
     end
   end
 
   defp print_avd(%Emulators{platform: :android} = a) do
-    dot = if a.running, do: "#{green()}●#{reset()}", else: "○"
-    suffix = if a.running, do: " #{dim()}(running, #{a.serial})#{reset()}", else: ""
-    IO.puts("  #{dot}  #{bold()}#{a.name}#{reset()}#{suffix}")
+    dot = if a.running, do: "●", else: "○"
+    suffix = if a.running, do: " (running, #{a.serial})", else: ""
+    DalaDev.Output.info("  #{dot}  #{a.name}#{suffix}")
   end
 
   defp print_sim(%Emulators{platform: :ios} = s) do
-    dot = if s.running, do: "#{green()}●#{reset()}", else: "○"
+    dot = if s.running, do: "●", else: "○"
     state = if s.running, do: "booted, ", else: ""
     short_id = String.replace(s.id, "-", "") |> String.slice(0, 8) |> String.downcase()
 
-    IO.puts(
-      "  #{dot}  #{bold()}#{pad(s.name, 28)}#{reset()} #{s.runtime}  #{dim()}(#{state}#{short_id})#{reset()}"
-    )
+    DalaDev.Output.info("  #{dot}  #{pad(s.name, 28)} #{s.runtime}  (#{state}#{short_id})")
   end
 
   # ── Start ─────────────────────────────────────────────────────────────────
@@ -128,40 +145,96 @@ defmodule Mix.Tasks.Dala.Emulators do
       Mix.raise("--start requires --id <id>. See `mix dala.emulators --list` for IDs.")
     end
 
-    case resolve(id) do
-      {:android, %Emulators{name: avd_name, running: false}} ->
-        IO.puts("Starting Android emulator: #{avd_name}")
+    case extra_args(opts) do
+      {:ok, extra} ->
+        start_resolved(resolve(id), opts, extra)
 
-        case Emulators.start_android(avd_name) do
-          :ok ->
-            IO.puts(
-              "#{green()}Started.#{reset()} (boots in background — `adb wait-for-device` to block)"
-            )
-
-          {:error, reason} ->
-            Mix.raise(reason)
-        end
-
-      {:android, %Emulators{name: avd_name, running: true, serial: serial}} ->
-        IO.puts("Already running: #{avd_name} (#{serial})")
-
-      {:ios, %Emulators{name: name, id: udid, running: false}} ->
-        IO.puts("Booting iOS simulator: #{name}")
-
-        case Emulators.start_ios(udid) do
-          :ok -> IO.puts("#{green()}Booted.#{reset()}")
-          {:error, reason} -> Mix.raise(reason)
-        end
-
-      {:ios, %Emulators{name: name, running: true}} ->
-        IO.puts("Already booted: #{name}")
-
-      :not_found ->
+      :error ->
         Mix.raise(
-          "No emulator/simulator matched #{inspect(id)}. Run `mix dala.emulators --list`."
+          "Unknown recipe #{inspect(opts[:recipe])}. " <>
+            "Available: #{Enum.join(Emulators.recipes(), ", ")}"
         )
     end
   end
+
+  # Resolve --recipe / --emulator-args into raw Android emulator CLI flags.
+  # Recipes are curated presets (see DalaDev.Emulators.recipes/0); free-form
+  # flags pass through as-is. Both combine when given together.
+  defp extra_args(opts) do
+    from_recipe =
+      case opts[:recipe] do
+        nil -> {:ok, []}
+        name -> Emulators.recipe_args(name)
+      end
+
+    from_cli =
+      case opts[:emulator_args] do
+        nil -> {:ok, []}
+        raw when is_binary(raw) -> {:ok, split_flags(raw)}
+        _ -> {:ok, []}
+      end
+
+    with {:ok, recipe} <- from_recipe,
+         {:ok, cli} <- from_cli do
+      {:ok, recipe ++ cli}
+    end
+  end
+
+  # Split a flag string on whitespace, keeping double-quoted runs together
+  # and then stripping their quotes. Pure — public for testing.
+  @doc false
+  @spec split_flags(String.t()) :: [String.t()]
+  def split_flags(raw) do
+    raw
+    |> String.split(DalaDev.Utils.compile_regex("\"[^\"]*\"|\\S+"), include_captures: true)
+    |> Enum.map(&(String.trim(&1) |> String.trim("\"")))
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp start_resolved({:android, %Emulators{name: avd_name, running: false}}, _opts, extra) do
+    DalaDev.Output.step("Starting Android emulator: #{avd_name}" <> describe_extra(extra))
+
+    case Emulators.start_android(avd_name, extra) do
+      :ok ->
+        DalaDev.Output.success(
+          "Started. (boots in background — `adb wait-for-device` to block)"
+        )
+
+      {:error, reason} ->
+        Mix.raise(reason)
+    end
+  end
+
+  defp start_resolved({:android, %Emulators{name: avd_name, running: true, serial: serial}}, _opts, _extra) do
+    DalaDev.Output.info("Already running: #{avd_name} (#{serial})")
+  end
+
+  defp start_resolved({:ios, %Emulators{name: name, id: udid, running: false}}, _opts, extra) do
+    unless extra == [] do
+      DalaDev.Output.warn(
+        "Recipes/emulator-flags apply to Android only; ignoring for iOS simulator."
+      )
+    end
+
+    DalaDev.Output.step("Booting iOS simulator: #{name}")
+
+    case Emulators.start_ios(udid) do
+      :ok -> DalaDev.Output.success("Booted.")
+      {:error, reason} -> Mix.raise(reason)
+    end
+  end
+
+  defp start_resolved({:ios, %Emulators{name: name, running: true}}, _opts, _extra) do
+    DalaDev.Output.info("Already booted: #{name}")
+  end
+
+  defp start_resolved(:not_found, opts, _extra) do
+    Mix.raise("No emulator/simulator matched #{inspect(opts[:id])}. Run `mix dala.emulators --list`.")
+  end
+
+  defp describe_extra([]), do: ""
+
+  defp describe_extra(extra), do: " (#{Enum.join(extra, " ")})"
 
   # ── Stop ──────────────────────────────────────────────────────────────────
 
@@ -184,26 +257,26 @@ defmodule Mix.Tasks.Dala.Emulators do
   defp do_stop_one(id) do
     case resolve(id) do
       {:android, %Emulators{running: true, serial: serial, name: name}} ->
-        IO.puts("Stopping Android emulator: #{name} (#{serial})")
+        DalaDev.Output.step("Stopping Android emulator: #{name} (#{serial})")
 
         case Emulators.stop_android(serial) do
-          :ok -> IO.puts("#{green()}Stopped.#{reset()}")
+          :ok -> DalaDev.Output.success("Stopped.")
           {:error, reason} -> Mix.raise(reason)
         end
 
       {:android, %Emulators{running: false, name: name}} ->
-        IO.puts("Not running: #{name}")
+        DalaDev.Output.info("Not running: #{name}")
 
       {:ios, %Emulators{running: true, id: udid, name: name}} ->
-        IO.puts("Shutting down iOS simulator: #{name}")
+        DalaDev.Output.step("Shutting down iOS simulator: #{name}")
 
         case Emulators.stop_ios(udid) do
-          :ok -> IO.puts("#{green()}Stopped.#{reset()}")
+          :ok -> DalaDev.Output.success("Stopped.")
           {:error, reason} -> Mix.raise(reason)
         end
 
       {:ios, %Emulators{running: false, name: name}} ->
-        IO.puts("Not booted: #{name}")
+        DalaDev.Output.info("Not booted: #{name}")
 
       :not_found ->
         Mix.raise(
@@ -243,22 +316,22 @@ defmodule Mix.Tasks.Dala.Emulators do
       end)
 
     if running == [] do
-      IO.puts("No running emulators or simulators.")
+      DalaDev.Output.info("No running emulators or simulators.")
     else
       names = Enum.map_join(running, ", ", & &1.name)
-      IO.puts("Stopping #{length(running)} running: #{names}")
+      DalaDev.Output.step("Stopping #{length(running)} running: #{names}")
 
       Enum.each(running, fn
         %Emulators{platform: :android, serial: serial, name: name} ->
           case Emulators.stop_android(serial) do
-            :ok -> IO.puts("  #{green()}✓#{reset()} #{name}")
-            {:error, reason} -> IO.puts("  #{red()}✗#{reset()} #{name}: #{reason}")
+            :ok -> DalaDev.Output.success(name)
+            {:error, reason} -> DalaDev.Output.error("#{name}: #{reason}")
           end
 
         %Emulators{platform: :ios, id: udid, name: name} ->
           case Emulators.stop_ios(udid) do
-            :ok -> IO.puts("  #{green()}✓#{reset()} #{name}")
-            {:error, reason} -> IO.puts("  #{red()}✗#{reset()} #{name}: #{reason}")
+            :ok -> DalaDev.Output.success(name)
+            {:error, reason} -> DalaDev.Output.error("#{name}: #{reason}")
           end
       end)
     end
@@ -304,15 +377,6 @@ defmodule Mix.Tasks.Dala.Emulators do
     Device.match_id?(fake, id)
   end
 
-  # ── ANSI helpers ──────────────────────────────────────────────────────────
-
-  defp cyan, do: IO.ANSI.cyan()
-  defp green, do: IO.ANSI.green()
-  defp yellow, do: IO.ANSI.yellow()
-  defp red, do: IO.ANSI.red()
-  defp bold, do: IO.ANSI.bright()
-  defp dim, do: IO.ANSI.faint()
-  defp reset, do: IO.ANSI.reset()
 
   defp pad(s, n) do
     pad_len = max(n - String.length(s), 0)

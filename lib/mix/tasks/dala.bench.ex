@@ -33,6 +33,9 @@ defmodule Mix.Tasks.Dala.Bench do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _} =
       OptionParser.parse!(args,
         strict: [
@@ -68,11 +71,11 @@ defmodule Mix.Tasks.Dala.Bench do
     format = Keyword.get(opts, :format, "text")
     report_path = Keyword.get(opts, :report)
 
-    Mix.shell().info("Running standard benchmarks...")
-    Mix.shell().info("Iterations: #{iterations}")
+    DalaDev.Output.step("Running standard benchmarks")
+    DalaDev.Output.info("Iterations: #{iterations}")
 
     # Benchmark: List operations
-    Mix.shell().info("\nBenchmarking list operations...")
+    DalaDev.Output.step("Benchmarking", "list operations")
 
     result1 =
       Benchmark.measure(
@@ -88,11 +91,11 @@ defmodule Mix.Tasks.Dala.Bench do
         print_benchmark_result("List mapping (1000 items)", stats)
 
       {:error, reason} ->
-        Mix.shell().error("Benchmark failed: #{inspect(reason)}")
+        DalaDev.Output.error("Benchmark failed: #{inspect(reason)}")
     end
 
     # Benchmark: String operations
-    Mix.shell().info("\nBenchmarking string operations...")
+    DalaDev.Output.step("Benchmarking", "string operations")
 
     result2 =
       Benchmark.measure(
@@ -108,7 +111,7 @@ defmodule Mix.Tasks.Dala.Bench do
         print_benchmark_result("String duplicate (1000 chars)", stats)
 
       {:error, reason} ->
-        Mix.shell().error("Benchmark failed: #{inspect(reason)}")
+        DalaDev.Output.error("Benchmark failed: #{inspect(reason)}")
     end
 
     # Generate report if requested
@@ -128,7 +131,7 @@ defmodule Mix.Tasks.Dala.Bench do
       |> Enum.map(&String.trim/1)
       |> Enum.map(&String.to_atom/1)
 
-    Mix.shell().info("Comparing performance across nodes: #{inspect(nodes)}")
+    DalaDev.Output.info("Comparing performance across nodes: #{inspect(nodes)}")
 
     # Define a simple benchmark module
     benchmark_fn = fn ->
@@ -137,7 +140,7 @@ defmodule Mix.Tasks.Dala.Bench do
 
     results =
       Enum.map(nodes, fn node ->
-        Mix.shell().info("\nBenchmarking #{node}...")
+        DalaDev.Output.step("Benchmarking", node)
 
         case Benchmark.measure(node, benchmark_fn, iterations: iterations) do
           {:ok, _, stats} ->
@@ -145,7 +148,7 @@ defmodule Mix.Tasks.Dala.Bench do
             stats
 
           {:error, reason} ->
-            Mix.shell().error("Failed on #{node}: #{inspect(reason)}")
+            DalaDev.Output.error("Failed on #{node}: #{inspect(reason)}")
             nil
         end
       end)
@@ -161,20 +164,20 @@ defmodule Mix.Tasks.Dala.Bench do
     test_path = Keyword.get(opts, :test)
 
     if File.exists?(test_path) do
-      Mix.shell().info("Running custom benchmark: #{test_path}")
+      DalaDev.Output.info("Running custom benchmark: #{test_path}")
 
       try do
         Code.eval_file(test_path)
       rescue
-        e -> Mix.shell().error("Failed to run benchmark: #{Exception.message(e)}")
+        e -> DalaDev.Output.error("Failed to run benchmark: #{Exception.message(e)}")
       end
     else
-      Mix.shell().error("Benchmark file not found: #{test_path}")
+      DalaDev.Output.error("Benchmark file not found: #{test_path}")
     end
   end
 
   defp print_benchmark_result(name, stats) do
-    Mix.shell().info("""
+    DalaDev.Output.info("""
     #{name}:
       Wall time: #{stats.wall_time} μs
       Reductions: #{stats.reductions}
@@ -196,10 +199,10 @@ defmodule Mix.Tasks.Dala.Bench do
 
     case Benchmark.report(results, format: format_atom, output: path) do
       {:ok, :ok} ->
-        Mix.shell().info("\nReport saved to: #{path}")
+        DalaDev.Output.success("Report saved to: #{path}")
 
       {:error, reason} ->
-        Mix.shell().error("Failed to generate report: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to generate report: #{inspect(reason)}")
     end
   end
 

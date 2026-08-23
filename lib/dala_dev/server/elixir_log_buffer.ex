@@ -22,12 +22,15 @@ defmodule DalaDev.Server.ElixirLogBuffer do
   def clear, do: GenServer.cast(__MODULE__, :clear)
 
   @impl GenServer
+  @spec init(term()) :: {:ok, [map()]}
   def init(_), do: {:ok, []}
 
   @impl GenServer
+  @spec handle_call(:get, GenServer.from(), [map()]) :: {:reply, [map()], [map()]}
   def handle_call(:get, _from, lines), do: {:reply, lines, lines}
 
   @impl GenServer
+  @spec handle_cast({:push, map()} | :clear, [map()]) :: {:noreply, [map()]}
   def handle_cast({:push, line}, lines) do
     {:noreply, Enum.take([line | lines], @limit)}
   end

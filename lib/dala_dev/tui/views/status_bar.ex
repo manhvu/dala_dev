@@ -17,14 +17,16 @@ defmodule DalaDev.Tui.Views.StatusBar do
   """
   @spec render(State.t(), Rect.t()) :: [{struct(), Rect.t()}]
   def render(state, rect) do
-    [{%Paragraph{
-      text: status_line(state),
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: status_line(state),
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp status_line(%State{status_message: msg}) when is_binary(msg) do

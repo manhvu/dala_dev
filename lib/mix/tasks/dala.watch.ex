@@ -52,6 +52,9 @@ defmodule Mix.Tasks.Dala.Watch do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} =
       OptionParser.parse(args,
         switches: [cookie: :string, debounce: :integer, interval: :integer],
@@ -65,11 +68,8 @@ defmodule Mix.Tasks.Dala.Watch do
     File.mkdir_p!("_build")
     File.write!(@pid_file, to_string(:os.getpid()))
 
-    IO.puts("")
 
-    IO.puts(
-      "#{IO.ANSI.cyan()}dala.watch#{IO.ANSI.reset()} — watching lib/ for changes  (Ctrl-C to stop)\n"
-    )
+    DalaDev.Output.step("dala.watch — watching lib/ for changes (Ctrl-C to stop)")
 
     nodes = connect_with_retry(cookie)
 
@@ -78,12 +78,12 @@ defmodule Mix.Tasks.Dala.Watch do
     {pushed, _} = DalaDev.HotPush.push_all(nodes)
 
     if pushed > 0 do
-      IO.puts("  #{IO.ANSI.green()}✓ initial push: #{pushed} module(s)#{IO.ANSI.reset()}")
+      DalaDev.Output.success("initial push: #{pushed} module(s)")
     end
 
     # Snapshot source mtimes.
     sources = snapshot_sources()
-    IO.puts("  Watching #{map_size(sources)} source file(s)...\n")
+    DalaDev.Output.info("Watching #{map_size(sources)} source file(s)\n")
 
     watch_loop(sources, nodes, cookie, debounce, interval)
   end
@@ -99,10 +99,10 @@ defmodule Mix.Tasks.Dala.Watch do
     if changed_files == [] do
       watch_loop(current, nodes, cookie, debounce, interval)
     else
-      IO.puts("#{IO.ANSI.cyan()}◉ #{length(changed_files)} file(s) changed#{IO.ANSI.reset()}")
+      DalaDev.Output.info("◉ #{length(changed_files)} file(s) changed")
 
       Enum.each(changed_files, fn f ->
-        IO.puts("  #{Path.relative_to_cwd(f)}")
+        DalaDev.Output.info("  #{Path.relative_to_cwd(f)}")
       end)
 
       # Debounce — wait in case more saves are incoming (e.g. format-on-save).
@@ -114,25 +114,26 @@ defmodule Mix.Tasks.Dala.Watch do
 
       snapshot = DalaDev.HotPush.snapshot_beams()
       recompile()
-      {pushed, failed} = DalaDev.HotPush.push_changed(live_nodes, snapshot)
+      {pushed, failed, modules} = DalaDev.HotPush.push_changed_detailed(live_nodes, snapshot)
 
       cond do
         pushed > 0 ->
           node_str = Enum.map_join(live_nodes, " ", &short_node/1)
-          IO.puts("  #{IO.ANSI.green()}✓ #{pushed} module(s) → #{node_str}#{IO.ANSI.reset()}")
+
+          DalaDev.Output.success(
+            "  #{pushed} module(s) → #{node_str} (#{Enum.map_join(modules, ", ", &inspect/1)})"
+          )
 
         failed != [] ->
           Enum.each(failed, fn {mod, reason} ->
-            IO.puts("  #{IO.ANSI.red()}✗ #{mod}: #{inspect(reason)}#{IO.ANSI.reset()}")
+            DalaDev.Output.error("  #{mod}: #{inspect(reason)}")
           end)
 
         true ->
-          IO.puts(
-            "  #{IO.ANSI.yellow()}(compile ran but no new BEAMs — syntax error?)#{IO.ANSI.reset()}"
-          )
+          DalaDev.Output.warn("  compile ran but no new BEAMs — syntax error?")
       end
 
-      IO.puts("")
+      DalaDev.Output.info("")
       watch_loop(current2, live_nodes, cookie, debounce, interval)
     end
   end
@@ -140,17 +141,17 @@ defmodule Mix.Tasks.Dala.Watch do
   # ── Helpers ─────────────────────────────────────────────────────────────────
 
   defp connect_with_retry(cookie) do
-    IO.write("Connecting to devices...")
+    DalaDev.Output.step("Connecting to devices...")
     nodes = DalaDev.HotPush.connect(cookie: cookie)
 
     if nodes == [] do
-      IO.puts(" #{IO.ANSI.yellow()}none found#{IO.ANSI.reset()}")
-      IO.puts("  Start apps first: mix dala.connect")
-      IO.puts("  Watching anyway — will connect when nodes come up.\n")
+      DalaDev.Output.warn("none found")
+      DalaDev.Output.hint("Start apps first: mix dala.connect")
+      DalaDev.Output.info("Watching anyway — will connect when nodes come up.\n")
     else
-      IO.puts(" #{IO.ANSI.green()}#{length(nodes)} node(s)#{IO.ANSI.reset()}")
-      Enum.each(nodes, fn n -> IO.puts("  #{IO.ANSI.green()}✓#{IO.ANSI.reset()} #{n}") end)
-      IO.puts("")
+      DalaDev.Output.success("#{length(nodes)} node(s)")
+      Enum.each(nodes, fn n -> DalaDev.Output.success(to_string(n)) end)
+      DalaDev.Output.info("")
     end
 
     nodes
@@ -179,7 +180,7 @@ defmodule Mix.Tasks.Dala.Watch do
     output
     |> String.split("\n", trim: true)
     |> Enum.reject(fn line -> Enum.any?(@noise_prefixes, &String.starts_with?(line, &1)) end)
-    |> Enum.each(&IO.puts/1)
+    |> Enum.each(&DalaDev.Output.info/1)
   end
 
   defp snapshot_sources do

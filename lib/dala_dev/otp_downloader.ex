@@ -143,8 +143,8 @@ defmodule DalaDev.OtpDownloader do
     url = "#{@base_url}/#{tarball}"
     tmp_file = Path.join(System.tmp_dir!(), tarball)
 
-    IO.puts("  Downloading #{name} OTP release...")
-    IO.puts("  URL: #{url}")
+    DalaDev.Output.info("  Downloading #{name} OTP release...")
+    DalaDev.Output.info("  URL: #{url}")
 
     File.mkdir_p!(Path.dirname(dest_dir))
 
@@ -152,7 +152,7 @@ defmodule DalaDev.OtpDownloader do
          :ok <- extract(tmp_file, dest_dir),
          :ok <- verify_erts(dest_dir) do
       File.rm(tmp_file)
-      IO.puts("  Cached at #{dest_dir}")
+      DalaDev.Output.success("  Cached at #{dest_dir}")
       {:ok, dest_dir}
     else
       {:error, reason} ->

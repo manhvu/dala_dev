@@ -26,14 +26,15 @@ defmodule DalaDev.Connector do
   def connect_all(opts \\ []) do
     cookie = Keyword.get(opts, :cookie, :dala_secret)
 
-    IO.puts("\n#{color(:cyan)}Scanning for devices...#{color(:reset)}\n")
+    DalaDev.Output.step("Scanning for devices")
+    DalaDev.Output.info("")
 
     devices = discover_all()
 
     if devices == [] do
-      IO.puts("  #{color(:yellow)}No devices found.#{color(:reset)}")
-      IO.puts("  • Connect an Android device via USB and enable USB debugging")
-      IO.puts("  • Start an iOS simulator in Xcode or via xcrun simctl")
+      DalaDev.Output.warn("No devices found.")
+      DalaDev.Output.hint("Connect an Android device via USB and enable USB debugging")
+      DalaDev.Output.hint("Start an iOS simulator in Xcode or via xcrun simctl")
       {[], []}
     else
       print_discovered(devices)
@@ -59,24 +60,22 @@ defmodule DalaDev.Connector do
       |> Enum.each(fn d -> IOS.enable_accessibility(d.serial) end)
 
       # Wait for nodes to come online
-      IO.puts("\n  Waiting for nodes...")
+      DalaDev.Output.info("\n  Waiting for nodes...")
       {connected, failed_wait} = wait_for_nodes(tunneled, cookie)
 
       # Report failures
       all_failed = failed_tunnel ++ failed_wait
 
       Enum.each(all_failed, fn d ->
-        IO.puts("  #{color(:red)}✗ #{d.name || d.serial}: #{d.error}#{color(:reset)}")
+        DalaDev.Output.error("  #{d.name || d.serial}: #{d.error}")
         print_fix_hint(d)
       end)
 
       if connected != [] do
-        IO.puts(
-          "\n#{color(:green)}Connected cluster (#{length(connected)} node(s)):#{color(:reset)}"
-        )
+        DalaDev.Output.success("Connected cluster (#{length(connected)} node(s)):")
 
         Enum.each(connected, fn d ->
-          IO.puts("  #{color(:green)}✓#{color(:reset)} #{d.node}  [port #{d.dist_port}]")
+          DalaDev.Output.info("  ✓ #{d.node}  [port #{d.dist_port}]")
         end)
       end
 
@@ -99,11 +98,11 @@ defmodule DalaDev.Connector do
 
       case Tunnel.setup(device, idx) do
         {:ok, d} ->
-          IO.puts("  #{color(:green)}✓#{color(:reset)}")
+          DalaDev.Output.info(" done")
           {ok ++ [d], fail}
 
         {:error, reason} ->
-          IO.puts("  #{color(:red)}✗#{color(:reset)}")
+          DalaDev.Output.info(" failed")
           {ok, fail ++ [%{device | status: :error, error: reason}]}
       end
     end)
@@ -142,14 +141,14 @@ defmodule DalaDev.Connector do
   defp restart_app(%Device{platform: :android, serial: serial, dist_port: port}) do
     IO.write("  Restarting app on #{serial}...")
     Android.restart_app(serial, android_package(), @android_activity, dist_port: port)
-    IO.puts(" done")
+    DalaDev.Output.info(" done")
   end
 
   defp restart_app(%Device{platform: :ios, type: :physical, serial: udid}) do
     IO.write("  Restarting app on #{udid}...")
     # dala_beam.m discovers the USB link-local IP via getifaddrs() — no env vars needed.
     IOS.restart_app_physical(udid, ios_bundle_id())
-    IO.puts(" done")
+    DalaDev.Output.info(" done")
   end
 
   defp restart_app(%Device{platform: :ios, serial: udid, dist_port: port}) do
@@ -157,7 +156,7 @@ defmodule DalaDev.Connector do
     IOS.terminate_app(udid, ios_bundle_id())
     :timer.sleep(500)
     IOS.launch_app(udid, ios_bundle_id(), dist_port: port)
-    IO.puts(" done")
+    DalaDev.Output.info(" done")
   end
 
   defp ensure_local_dist(cookie) do
@@ -219,11 +218,11 @@ defmodule DalaDev.Connector do
 
       case Task.await(task, @connect_timeout + 2_000) do
         :ok ->
-          IO.puts("  #{color(:green)}✓#{color(:reset)}")
+          DalaDev.Output.info(" done")
           {ok ++ [%{device | status: :connected}], fail}
 
         {:error, reason} ->
-          IO.puts("  #{color(:red)}✗#{color(:reset)}")
+          DalaDev.Output.info(" failed")
           {ok, fail ++ [%{device | status: :error, error: reason}]}
       end
     end)
@@ -254,49 +253,41 @@ defmodule DalaDev.Connector do
     ios = Enum.filter(devices, &(&1.platform == :ios))
 
     if android != [] do
-      IO.puts("  #{color(:blue)}Android#{color(:reset)}")
+      DalaDev.Output.info("  Android")
 
       Enum.each(android, fn d ->
-        status =
-          if d.status == :unauthorized,
-            do: "#{color(:red)}unauthorized#{color(:reset)}",
-            else: "found"
+        status = if d.status == :unauthorized, do: "unauthorized", else: "found"
 
-        IO.puts("  ├── #{d.name || d.serial}  #{d.serial}  #{status}")
-        if d.status == :unauthorized, do: IO.puts("  │   #{d.error}")
+        DalaDev.Output.info("  ├── #{d.name || d.serial}  #{d.serial}  #{status}")
+
+        if d.status == :unauthorized,
+          do: DalaDev.Output.error("  │   #{d.error}")
       end)
     end
 
     if ios != [] do
-      IO.puts("  #{color(:blue)}iOS#{color(:reset)}")
+      DalaDev.Output.info("  iOS")
 
       Enum.each(ios, fn d ->
-        IO.puts("  ├── #{d.name || d.serial}  #{d.serial}  found")
+        DalaDev.Output.info("  ├── #{d.name || d.serial}  #{d.serial}  found")
       end)
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
   end
 
   defp print_fix_hint(%Device{status: :unauthorized}) do
-    IO.puts("    → Check your device for a 'Allow USB debugging?' prompt")
-    IO.puts("    → If no prompt: Settings → Developer Options → Revoke USB debugging")
+    DalaDev.Output.hint("Check your device for a 'Allow USB debugging?' prompt")
+    DalaDev.Output.hint("If no prompt: Settings → Developer Options → Revoke USB debugging")
   end
 
   defp print_fix_hint(%Device{platform: :android, error: error})
        when is_binary(error) do
     if String.contains?(error, "timed out") do
-      IO.puts("    → Is the app installed? Run: mix dala.deploy")
-      IO.puts("    → Android distribution starts 3s after app launch")
+      DalaDev.Output.hint("Is the app installed? Run: mix dala.deploy")
+      DalaDev.Output.hint("Android distribution starts 3s after app launch")
     end
   end
 
   defp print_fix_hint(_), do: :ok
-
-  defp color(:red), do: IO.ANSI.red()
-  defp color(:green), do: IO.ANSI.green()
-  defp color(:yellow), do: IO.ANSI.yellow()
-  defp color(:blue), do: IO.ANSI.cyan()
-  defp color(:cyan), do: IO.ANSI.cyan()
-  defp color(:reset), do: IO.ANSI.reset()
 end

@@ -42,6 +42,8 @@ defmodule Mix.Tasks.Dala.Release.Android do
 
   @impl Mix.Task
   def run(_args) do
+    DalaDev.Output.configure([])
+
     unless File.dir?("android") do
       Mix.raise("No android/ directory found. Run from the root of a dala Android project.")
     end
@@ -54,16 +56,16 @@ defmodule Mix.Tasks.Dala.Release.Android do
 
         if File.exists?(aab_path) do
           size = File.stat!(aab_path).size
-          Mix.shell().info("")
-          Mix.shell().info("#{green()}✓ Release build complete#{reset()}")
-          Mix.shell().info("  AAB: #{cyan()}#{aab_path}#{reset()}")
-          Mix.shell().info("  Size: #{format_size(size)}")
-          Mix.shell().info("")
-          Mix.shell().info("Next steps:")
-          Mix.shell().info("  1. Test locally: #{cyan()}mix dala.deploy --android#{reset()}")
+          DalaDev.Output.info("")
+          DalaDev.Output.success("Release build complete")
+          DalaDev.Output.info("AAB: #{aab_path}")
+          DalaDev.Output.info("Size: #{format_size(size)}")
+          DalaDev.Output.info("")
+          DalaDev.Output.info("Next steps:")
+          DalaDev.Output.info("1. Test locally: mix dala.deploy --android")
 
-          Mix.shell().info(
-            "  2. Upload to Google Play: #{cyan()}mix dala.publish.android#{reset()}"
+          DalaDev.Output.info(
+            "2. Upload to Google Play: mix dala.publish.android"
           )
         else
           Mix.raise("AAB not found at #{aab_path}. Build may have failed.")
@@ -74,6 +76,7 @@ defmodule Mix.Tasks.Dala.Release.Android do
     end
   end
 
+  @spec format_size(non_neg_integer()) :: String.t()
   def format_size(bytes) when bytes >= 1024 * 1024 do
     :io_lib.format("~.1fM", [bytes / (1024 * 1024)]) |> List.flatten() |> to_string()
   end
@@ -84,7 +87,4 @@ defmodule Mix.Tasks.Dala.Release.Android do
 
   def format_size(bytes), do: "#{bytes}B"
 
-  defp green, do: IO.ANSI.green()
-  defp cyan, do: IO.ANSI.cyan()
-  defp reset, do: IO.ANSI.reset()
 end

@@ -48,6 +48,9 @@ defmodule Mix.Tasks.Dala.Web do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _, _} =
       OptionParser.parse(args,
         switches: [
@@ -79,8 +82,8 @@ defmodule Mix.Tasks.Dala.Web do
       target = target_node |> to_string() |> String.to_atom()
 
       case Node.connect(target) do
-        true -> Mix.shell().info("Connected to #{target}")
-        false -> Mix.shell().error("Failed to connect to #{target}")
+        true -> DalaDev.Output.success("Connected to #{target}")
+        false -> DalaDev.Output.error("Failed to connect to #{target}")
       end
     end
 
@@ -89,6 +92,7 @@ defmodule Mix.Tasks.Dala.Web do
     lan_ip = DalaDev.Network.lan_ip()
 
     # Start required applications
+    DalaDev.ServerDeps.ensure_available!()
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
     {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
@@ -113,30 +117,30 @@ defmodule Mix.Tasks.Dala.Web do
 
     # Print startup information
     local_url = "http://localhost:#{port}"
-    IO.puts("")
-    IO.puts("#{IO.ANSI.cyan()}=== Dala Web UI ===#{IO.ANSI.reset()}")
-    IO.puts("  #{IO.ANSI.green()}#{local_url}#{IO.ANSI.reset()}")
-    IO.puts("  #{IO.ANSI.cyan()}All dala_dev features available at:#{IO.ANSI.reset()}")
-    IO.puts("    #{local_url}/dashboard")
-    IO.puts("    #{local_url}/devices")
-    IO.puts("    #{local_url}/deploy")
-    IO.puts("    #{local_url}/emulators")
-    IO.puts("    #{local_url}/observer")
-    IO.puts("    #{local_url}/provision")
-    IO.puts("    #{local_url}/release")
-    IO.puts("    #{local_url}/profiling")
-    IO.puts("    #{local_url}/ci")
-    IO.puts("    #{local_url}/logs")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Web UI")
+    DalaDev.Output.success(local_url)
+    DalaDev.Output.info("All dala_dev features available at:")
+    DalaDev.Output.info("#{local_url}/dashboard")
+    DalaDev.Output.info("#{local_url}/devices")
+    DalaDev.Output.info("#{local_url}/deploy")
+    DalaDev.Output.info("#{local_url}/emulators")
+    DalaDev.Output.info("#{local_url}/observer")
+    DalaDev.Output.info("#{local_url}/provision")
+    DalaDev.Output.info("#{local_url}/release")
+    DalaDev.Output.info("#{local_url}/profiling")
+    DalaDev.Output.info("#{local_url}/ci")
+    DalaDev.Output.info("#{local_url}/logs")
 
     if lan_ip do
       lan_url = "http://#{:inet.ntoa(lan_ip)}:#{port}"
-      IO.puts("")
-      IO.puts("  #{IO.ANSI.green()}LAN: #{lan_url}#{IO.ANSI.reset()}  ← open on phone")
-      IO.puts("")
-      IO.puts(DalaDev.QR.render(lan_url))
+      DalaDev.Output.info("")
+      DalaDev.Output.success("LAN: #{lan_url}  ← open on phone")
+      DalaDev.Output.info("")
+      DalaDev.Output.info(DalaDev.QR.render(lan_url))
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     # Open browser if requested
     if open_browser? do
@@ -145,11 +149,11 @@ defmodule Mix.Tasks.Dala.Web do
 
     if IEx.started?() do
       Process.unlink(sup)
-      IO.puts("  #{IO.ANSI.green()}IEx ready.#{IO.ANSI.reset()}")
-      IO.puts("")
+      DalaDev.Output.success("IEx ready.")
+      DalaDev.Output.info("")
     else
-      IO.puts("  Press Ctrl+C to stop.")
-      IO.puts("")
+      DalaDev.Output.info("Press Ctrl+C to stop.")
+      DalaDev.Output.info("")
       Process.sleep(:infinity)
     end
   end

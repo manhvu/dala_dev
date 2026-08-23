@@ -63,17 +63,141 @@ defmodule DalaDev.UtilsTest do
     end
   end
 
-  describe "run_adb_with_timeout/2" do
-    test "function is callable" do
-      # Verify the function exists and has the right arity
-      assert function_exported?(DalaDev.Utils, :run_adb_with_timeout, 2)
+  describe "parse_adb_devices_output/1" do
+    test "parses serials from tab-separated output" do
+      output = """
+      List of devices attached
+      emulator-5554\tdevice product:sdk_gphone64_arm64
+      R5CW3089HVB\tdevice usb:1234
+      """
+
+      assert DalaDev.Utils.parse_adb_devices_output(output) == [
+               "emulator-5554",
+               "R5CW3089HVB"
+             ]
     end
 
-    test "handles missing timeout command gracefully" do
-      # The function should not crash even if timeout is unavailable
-      # We test this by ensuring the timeout_available? helper works
-      result = DalaDev.Utils.command_available?("timeout")
-      assert is_boolean(result)
+    test "skips blank lines" do
+      output = "List of devices attached\n\nemulator-5554\tdevice\n"
+
+      assert DalaDev.Utils.parse_adb_devices_output(output) == ["emulator-5554"]
+    end
+
+    test "returns empty list for header only" do
+      assert DalaDev.Utils.parse_adb_devices_output("List of devices attached\n") == []
+    end
+  end
+
+  describe "run_adb_for_device/3" do
+    test "prepends -s serial to args and returns error for missing adb target" do
+      if DalaDev.Utils.adb_available?() do
+        # A bogus serial fails cleanly rather than crashing.
+        assert match?(
+                 {:error, _},
+                 DalaDev.Utils.run_adb_for_device("no-such-serial-xyz", ["get-state"],
+                   timeout: 5000
+                 )
+               )
+      else
+        assert function_exported?(DalaDev.Utils, :run_adb_for_device, 3)
+      end
+    end
+  end
+
+  describe "adb_available?/0" do
+    test "returns true only when adb is on PATH" do
+      expected = System.find_executable("adb") != nil
+      assert DalaDev.Utils.adb_available?() == expected
+    end
+  end
+
+  describe "run_adb_with_timeout/2" do
+    test "returns ok with trimmed output on success" do
+      assert {:ok, "hello"} =
+               DalaDev.Utils.run_adb_with_timeout(["x"],
+                 exec: fn _args, _opts -> {"hello\n", 0} end
+               )
+    end
+
+    test "returns error with output on non-zero exit" do
+      assert {:error, "boom"} =
+               DalaDev.Utils.run_adb_with_timeout(["x"],
+                 exec: fn _args, _opts -> {"boom\n", 1} end
+               )
+    end
+
+    test "returns {:error, :timeout} and does not hang past the timeout" do
+      start = System.monotonic_time(:millisecond)
+
+      assert {:error, :timeout} =
+               DalaDev.Utils.run_adb_with_timeout(["x"],
+                 timeout: 50,
+                 exec: fn _args, _opts ->
+                   Process.sleep(10_000)
+                   {"late", 0}
+                 end
+               )
+
+      elapsed = System.monotonic_time(:millisecond) - start
+      assert elapsed < 5_000
+    end
+
+    test "passes args verbatim to the executor (no shell joining)" do
+      parent = self()
+
+      DalaDev.Utils.run_adb_with_timeout(["shell", "echo", "a b"],
+        exec: fn args, _opts ->
+          send(parent, {:args, args})
+          {"ok", 0}
+        end
+      )
+
+      assert_received {:args, ["shell", "echo", "a b"]}
+    end
+
+    test "forwards stderr_to_stdout option to the executor" do
+      parent = self()
+
+      DalaDev.Utils.run_adb_with_timeout(["x"],
+        stderr_to_stdout: false,
+        exec: fn _args, opts ->
+          send(parent, {:opts, opts})
+          {"ok", 0}
+        end
+      )
+
+      assert_received {:opts, [stderr_to_stdout: false]}
+    end
+  end
+
+  describe "normalize_cli_args/1" do
+    test "rewrites underscored long flags to hyphenated form" do
+      assert DalaDev.Utils.normalize_cli_args(["--on_conflict", "skip"]) ==
+               ["--on-conflict", "skip"]
+
+      assert DalaDev.Utils.normalize_cli_args(["--dry_run"]) == ["--dry-run"]
+
+      assert DalaDev.Utils.normalize_cli_args(["--no_keep_alive", "--no-csv"]) ==
+               ["--no-keep-alive", "--no-csv"]
+    end
+
+    test "handles --flag=value form" do
+      assert DalaDev.Utils.normalize_cli_args(["--log_path=/tmp/x"]) == ["--log-path=/tmp/x"]
+    end
+
+    test "leaves values, short flags, and bare -- untouched" do
+      args = ["local.txt", "/remote/path_with_underscore", "-x"]
+
+      assert DalaDev.Utils.normalize_cli_args(args) ==
+               ["local.txt", "/remote/path_with_underscore", "-x"]
+
+      assert DalaDev.Utils.normalize_cli_args([]) == []
+      assert DalaDev.Utils.normalize_cli_args(["--"]) == ["--"]
+    end
+
+    test "normalizes flags after positional values" do
+      assert DalaDev.Utils.normalize_cli_args(["a.txt", "/r/a.txt", "--on_conflict", "skip"]) ==
+               ["a.txt", "/r/a.txt", "--on-conflict", "skip"]
     end
   end
 end

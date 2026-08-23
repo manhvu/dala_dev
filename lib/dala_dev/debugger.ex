@@ -67,6 +67,7 @@ defmodule DalaDev.Debugger do
     :rpc.call(node, __MODULE__, :get_supervision_tree_local, [], timeout)
   end
 
+  @spec get_supervision_tree(node_ref()) :: {:ok, map()} | {:error, term()}
   def get_supervision_tree(node_ref) do
     get_supervision_tree(node_ref, [])
   end
@@ -127,6 +128,7 @@ defmodule DalaDev.Debugger do
   end
 
   @doc false
+  @spec inspect_process_local(process_ref()) :: {:ok, map()} | {:error, term()}
   def inspect_process_local(process_ref) do
     pid = resolve_pid(process_ref)
 
@@ -171,6 +173,7 @@ defmodule DalaDev.Debugger do
   end
 
   @doc false
+  @spec get_supervision_tree_local() :: {:ok, map()} | {:error, term()}
   def get_supervision_tree_local do
     case Process.whereis(:supervisor) do
       nil ->
@@ -198,6 +201,7 @@ defmodule DalaDev.Debugger do
   end
 
   @doc false
+  @spec eval_remote_local(String.t(), list()) :: {:ok, any()} | {:error, term()}
   def eval_remote_local(code, bindings) do
     try do
       {result, _bindings} = Code.eval_string(code, bindings)
@@ -208,10 +212,12 @@ defmodule DalaDev.Debugger do
   end
 
   @doc false
+  @spec memory_report_local() :: {:ok, map()}
   def memory_report_local do
     mem = :erlang.memory()
 
     report = %{
+      node: node(),
       total: format_bytes(Keyword.get(mem, :total, 0)),
       processes: format_bytes(Keyword.get(mem, :processes_used, 0)),
       system: format_bytes(Keyword.get(mem, :system, 0)),
@@ -275,6 +281,7 @@ defmodule DalaDev.Debugger do
   end
 
   @doc false
+  @spec trace_messages_local(process_ref(), non_neg_integer()) :: {:ok, [map()]}
   def trace_messages_local(process_ref, duration) do
     pid = resolve_pid(process_ref)
 

@@ -12,6 +12,9 @@ defmodule DalaDev.Server.ObserverLive do
 
   @refresh_interval 5_000
 
+  @impl true
+  @spec mount(term(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(@refresh_interval, self(), :refresh)
@@ -28,12 +31,16 @@ defmodule DalaDev.Server.ObserverLive do
     {:ok, fetch_summary(socket)}
   end
 
+  @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(%{"node" => node_str}, _uri, socket) do
-    try do
-      node = String.to_existing_atom(":#{node_str}")
-      {:noreply, assign(socket, :node, node) |> fetch_summary()}
-    rescue
-      _ -> {:noreply, assign(socket, :error, "Invalid node name: #{node_str}")}
+    case resolve_node(node_str, socket.assigns.available_nodes) do
+      {:ok, node} ->
+        {:noreply, assign(socket, :node, node) |> fetch_summary()}
+
+      :error ->
+        {:noreply, assign(socket, :error, "Invalid node name: #{node_str}")}
     end
   end
 
@@ -41,23 +48,39 @@ defmodule DalaDev.Server.ObserverLive do
     {:noreply, socket}
   end
 
+  @impl true
+  @spec handle_info(term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_info(:refresh, socket) do
     {:noreply, fetch_summary(socket)}
   end
 
+  @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("refresh", _params, socket) do
     {:noreply, fetch_summary(socket)}
   end
 
   def handle_event("select_node", %{"node" => node_str}, socket) do
-    try do
-      node = String.to_existing_atom(node_str)
-      {:noreply, assign(socket, :node, node) |> fetch_summary()}
-    rescue
-      _ -> {:noreply, assign(socket, :error, "Invalid node: #{node_str}")}
+    case resolve_node(node_str, socket.assigns.available_nodes) do
+      {:ok, node} ->
+        {:noreply, assign(socket, :node, node) |> fetch_summary()}
+
+      :error ->
+        {:noreply, assign(socket, :error, "Invalid node: #{node_str}")}
     end
   end
 
+  defp resolve_node(node_str, available_nodes) do
+    case Enum.find(available_nodes, &(Atom.to_string(&1) == node_str)) do
+      nil -> :error
+      node -> {:ok, node}
+    end
+  end
+
+  @impl true
+  @spec render(Phoenix.LiveView.Socket.assigns()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="p-6 max-w-7xl mx-auto">
@@ -77,7 +100,7 @@ defmodule DalaDev.Server.ObserverLive do
           <select class="bg-zinc-800 text-zinc-100 px-3 py-2 rounded border border-zinc-700"
                   phx-change="select_node">
             <%= for n <- @available_nodes do %>
-              <option value={inspect(n)} selected={n == @node}><%= inspect(n) %></option>
+              <option value={Atom.to_string(n)} selected={n == @node}><%= Atom.to_string(n) %></option>
             <% end %>
           </select>
           <span class="text-sm text-zinc-500">

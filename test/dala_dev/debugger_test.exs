@@ -38,10 +38,21 @@ defmodule DalaDev.DebuggerTest do
 
   describe "memory_report_local/0" do
     test "generates memory report" do
-      {:ok, report} = Debugger.memory_report_local()
-      assert is_map(report)
-      assert Map.has_key?(report, :total)
-      assert Map.has_key?(report, :processes)
+      local = Node.self()
+      assert {:ok, report} = Debugger.memory_report_local()
+
+      # Full documented shape: per-area formatted strings + raw keyword list
+      assert %{
+               node: ^local,
+               total: _,
+               processes: _,
+               system: _,
+               atom: _,
+               binary: _,
+               code: _,
+               ets: _,
+               raw: _
+             } = report
     end
   end
 end

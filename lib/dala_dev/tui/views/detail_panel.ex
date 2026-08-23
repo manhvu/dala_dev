@@ -30,14 +30,16 @@ defmodule DalaDev.Tui.Views.DetailPanel do
   # ── Device Detail ───────────────────────────────────────────
 
   defp render_device_detail(%State{selected_device: nil}, rect) do
-    [{%Paragraph{
-      text: "No device selected",
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: "No device selected",
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp render_device_detail(%State{selected_device: device}, rect) do
@@ -46,27 +48,31 @@ defmodule DalaDev.Tui.Views.DetailPanel do
       |> DalaDev.Tui.State.device_detail()
       |> Enum.map(&to_line/1)
 
-    [{%Paragraph{
-      text: lines,
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: lines,
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   # ── Task Detail ─────────────────────────────────────────────
 
   defp render_task_detail(%State{selected_task: nil}, rect) do
-    [{%Paragraph{
-      text: "No task selected",
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: "No task selected",
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp render_task_detail(%State{selected_task: task}, rect) do
@@ -75,27 +81,31 @@ defmodule DalaDev.Tui.Views.DetailPanel do
       |> DalaDev.Tui.State.task_detail()
       |> Enum.map(&to_line/1)
 
-    [{%Paragraph{
-      text: lines,
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: lines,
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   # ── Debug Detail ────────────────────────────────────────────
 
   defp render_debug_detail(%State{selected_remote: nil}, rect) do
-    [{%Paragraph{
-      text: "No remote node selected\n\nSelect a node from the Debug tab to inspect.",
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: "No remote node selected\n\nSelect a node from the Debug tab to inspect.",
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp render_debug_detail(%State{selected_remote: remote, loading: loading}, rect) do
@@ -103,9 +113,13 @@ defmodule DalaDev.Tui.Views.DetailPanel do
       if loading do
         [
           %Line{spans: [%Span{content: " ", style: %Style{}}]},
-          %Line{spans: [%Span{content: "Loading remote node info...", style: Theme.gold_style()}]},
+          %Line{
+            spans: [%Span{content: "Loading remote node info...", style: Theme.gold_style()}]
+          },
           %Line{spans: [%Span{content: "", style: %Style{}}]},
-          %Line{spans: [%Span{content: "Querying #{remote.node}...", style: Theme.dim_text_style()}]}
+          %Line{
+            spans: [%Span{content: "Querying #{remote.node}...", style: Theme.dim_text_style()}]
+          }
         ]
       else
         remote
@@ -113,38 +127,44 @@ defmodule DalaDev.Tui.Views.DetailPanel do
         |> Enum.map(&to_line/1)
       end
 
-    [{%Paragraph{
-      text: lines,
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: lines,
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   # ── Output ──────────────────────────────────────────────────
 
   defp render_output(%State{last_run_output: nil}, rect) do
-    [{%Paragraph{
-      text: "No output yet.\n\nRun a task to see results here.",
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: "No output yet.\n\nRun a task to see results here.",
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp render_output(%State{last_run_output: output}, rect) do
-    [{%Paragraph{
-      text: output,
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: output,
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   # ── Helpers ─────────────────────────────────────────────────
@@ -154,5 +174,7 @@ defmodule DalaDev.Tui.Views.DetailPanel do
   end
 
   defp to_line(%Line{} = line), do: line
-  defp to_line(other), do: %Line{spans: [%Span{content: inspect(other), style: %Style{fg: :white}}]}
+
+  defp to_line(other),
+    do: %Line{spans: [%Span{content: inspect(other), style: %Style{fg: :white}}]}
 end

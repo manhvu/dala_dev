@@ -4,57 +4,45 @@ defmodule DalaDev.Tui.RemoteTest do
   alias DalaDev.Tui.Remote
 
   describe "struct defaults" do
-    test "creates a remote struct with all nil fields" do
-      remote = %Remote{node: :test@localhost}
+    test "query/1 against an unreachable node leaves optional fields unset" do
+      remote = Remote.query(:nonexistent@localhost)
 
-      assert remote.node == :test@localhost
-      assert remote.version == nil
-      assert remote.otp_version == nil
-      assert remote.erts_version == nil
-      assert remote.app_version == nil
-      assert remote.current_screen == nil
-      assert remote.screen_info == nil
-      assert remote.assigns == nil
-      assert remote.memory == nil
-      assert remote.process_count == nil
-      assert remote.supervision_tree == nil
-      assert remote.latency_ms == nil
-      assert remote.connected_at == nil
-      assert remote.error == nil
+      # Pattern-match (rather than field access) covers every optional field,
+      # including the `assigns` field, without introspecting LiveView sockets.
+      assert %Remote{
+               node: :nonexistent@localhost,
+               version: nil,
+               otp_version: nil,
+               erts_version: nil,
+               app_version: nil,
+               current_screen: nil,
+               screen_info: nil,
+               assigns: nil,
+               memory: nil,
+               process_count: 0,
+               supervision_tree: nil,
+               latency_ms: nil,
+               connected_at: nil
+             } = remote
+
+      assert remote.error =~ "dala:"
     end
 
-    test "creates a remote struct with populated fields" do
-      remote = %Remote{
-        node: :demo@localhost,
-        version: "0.8.0",
-        otp_version: "27",
-        erts_version: "15.0",
-        app_version: "0.1.0",
-        current_screen: "HomeScreen",
-        screen_info: %{title: "Home"},
-        assigns: %{user: "John"},
-        memory: %{total: 50_000_000},
-        process_count: 150,
-        latency_ms: 2.5,
-        error: nil
-      }
+    test "query/1 against the local node fills in live values" do
+      remote = Remote.query(Node.self())
 
-      assert remote.version == "0.8.0"
-      assert remote.current_screen == "HomeScreen"
-      assert remote.process_count == 150
-      assert remote.latency_ms == 2.5
+      # system_info(:otp_release) returns a charlist, which the module inspects
+      assert remote.otp_version == inspect(:erlang.system_info(:otp_release))
+      assert remote.memory[:total] > 0
+      assert remote.process_count > 0
+      assert remote.latency_ms == nil or is_float(remote.latency_ms)
     end
   end
 
   describe "connected_nodes/0" do
-    test "returns a list of connected nodes" do
+    test "returns the VM's connected nodes as atoms" do
       nodes = Remote.connected_nodes()
-      assert is_list(nodes)
-    end
-
-    test "returns empty list when no nodes connected" do
-      # In test environment, typically no nodes are connected
-      nodes = Remote.connected_nodes()
+      assert nodes == Node.list(:connected)
       assert Enum.all?(nodes, &is_atom/1)
     end
   end
@@ -65,7 +53,7 @@ defmodule DalaDev.Tui.RemoteTest do
     end
 
     test "returns false for invalid node name" do
-      refute Remote.reachable(:not_a_node)
+      refute Remote.reachable?(:not_a_node)
     end
   end
 

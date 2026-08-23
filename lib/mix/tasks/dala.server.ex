@@ -48,6 +48,10 @@ defmodule Mix.Tasks.Dala.Server do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
+    DalaDev.ServerDeps.ensure_available!()
     {opts, _, _} = OptionParser.parse(args, switches: [port: :integer])
     port = opts[:port] || @default_port
     lan_ip = DalaDev.Network.lan_ip()
@@ -74,18 +78,18 @@ defmodule Mix.Tasks.Dala.Server do
     DalaDev.Server.ElixirLogger.attach()
 
     local_url = "http://localhost:#{port}"
-    IO.puts("")
-    IO.puts("#{IO.ANSI.cyan()}=== Dala Dev Server ===#{IO.ANSI.reset()}")
-    IO.puts("  #{IO.ANSI.green()}#{local_url}#{IO.ANSI.reset()}")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Dev Server")
+    DalaDev.Output.success(local_url)
 
     if lan_ip do
       lan_url = "http://#{:inet.ntoa(lan_ip)}:#{port}"
-      IO.puts("  #{IO.ANSI.green()}#{lan_url}#{IO.ANSI.reset()}  ← open on phone")
-      IO.puts("")
-      IO.puts(DalaDev.QR.render(lan_url))
+      DalaDev.Output.success("#{lan_url}  ← open on phone")
+      DalaDev.Output.info("")
+      DalaDev.Output.info(DalaDev.QR.render(lan_url))
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
     open_browser(local_url)
 
     if IEx.started?() do
@@ -93,18 +97,18 @@ defmodule Mix.Tasks.Dala.Server do
       # Without this the supervisor exits when the Mix task process exits.
       Process.unlink(sup)
 
-      IO.puts(
-        "  #{IO.ANSI.green()}IEx ready.#{IO.ANSI.reset()} Elixir log output appears in the dashboard → Elixir panel."
+      DalaDev.Output.success(
+        "IEx ready. Elixir log output appears in the dashboard → Elixir panel."
       )
 
-      IO.puts("")
+      DalaDev.Output.info("")
     else
-      IO.puts(
-        "  Tip: run #{IO.ANSI.cyan()}iex -S mix dala.server#{IO.ANSI.reset()} for an interactive terminal."
+      DalaDev.Output.hint(
+        "Tip: run iex -S mix dala.server for an interactive terminal."
       )
 
-      IO.puts("  Press Ctrl+C to stop.")
-      IO.puts("")
+      DalaDev.Output.info("Press Ctrl+C to stop.")
+      DalaDev.Output.info("")
       Process.sleep(:infinity)
     end
   end

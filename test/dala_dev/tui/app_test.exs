@@ -58,12 +58,13 @@ defmodule DalaDev.Tui.AppTest do
   describe "handle_event" do
     test "q key stops the app" do
       state = DalaDev.Tui.State.new([], [], [])
-      state_data = %{state: state, test_mode: nil, name: nil}
+      state_data = %{state: state, test_mode: nil, name: nil, show_help: false}
 
-      result = App.handle_event(
-        %ExRatatui.Event.Key{code: "q", kind: "press"},
-        %{show_help: false} = state_data
-      )
+      result =
+        App.handle_event(
+          %ExRatatui.Event.Key{code: "q", kind: "press"},
+          state_data
+        )
 
       assert {:stop, _} = result
     end
@@ -72,10 +73,11 @@ defmodule DalaDev.Tui.AppTest do
       state = DalaDev.Tui.State.new([], [], [])
       state_data = %{state: state, test_mode: nil, name: nil}
 
-      result = App.handle_event(
-        %ExRatatui.Event.Key{code: "j", kind: "press"},
-        state_data
-      )
+      result =
+        App.handle_event(
+          %ExRatatui.Event.Key{code: "j", kind: "press"},
+          state_data
+        )
 
       assert {:noreply, _} = result
     end

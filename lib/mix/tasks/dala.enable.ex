@@ -85,12 +85,17 @@ defmodule Mix.Tasks.Dala.Enable do
 
   @impl Mix.Task
   def run([]) do
-    Mix.shell().error("Usage: mix dala.enable FEATURE [FEATURE ...]")
-    Mix.shell().info("Valid features: #{Enum.join(@valid_features, ", ")}")
+    DalaDev.Output.configure([])
+
+    DalaDev.Output.error("Usage: mix dala.enable FEATURE [FEATURE ...]")
+    DalaDev.Output.info("Valid features: #{Enum.join(@valid_features, ", ")}")
     Mix.raise("No features specified")
   end
 
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+    DalaDev.Output.configure([])
+
     {_opts, features, _} = OptionParser.parse(argv, strict: [])
 
     project_dir = File.cwd!()
@@ -111,11 +116,11 @@ defmodule Mix.Tasks.Dala.Enable do
     app_name = read_app_name(project_dir)
 
     Enum.each(features, fn feature ->
-      Mix.shell().info([:cyan, "\nEnabling #{feature}...", :reset])
+      DalaDev.Output.step("Enabling", feature)
       enable(feature, project_dir, app_name)
     end)
 
-    Mix.shell().info([:green, "\nDone.", :reset])
+    DalaDev.Output.success("Done.")
   end
 
   # ── Feature handlers ──────────────────────────────────────────────────────
@@ -179,11 +184,11 @@ defmodule Mix.Tasks.Dala.Enable do
     path = Path.join(dir, "dala_screen.ex")
 
     if File.exists?(path) do
-      Mix.shell().info("  * skip #{path} (already exists)")
+      DalaDev.Output.info("  * skip #{path} (already exists)")
     else
       File.mkdir_p!(dir)
       File.write!(path, dala_screen_template(module_name))
-      Mix.shell().info([:green, "  * create ", :reset, path])
+      DalaDev.Output.info(["  * create ", path])
     end
   end
 
@@ -221,19 +226,19 @@ defmodule Mix.Tasks.Dala.Enable do
     path = Path.join([project_dir, "assets", "js", "app.js"])
 
     unless File.exists?(path) do
-      Mix.shell().info("  * skip DalaHook injection (#{path} not found)")
-      Mix.shell().info("    Add the hook manually — see `Dala.Platform.LiveView` docs.")
+      DalaDev.Output.warn("  * skip DalaHook injection (#{path} not found)")
+      DalaDev.Output.hint("Add the hook manually — see `Dala.Platform.LiveView` docs.")
       return(nil)
     end
 
     content = File.read!(path)
 
     if String.contains?(content, "DalaHook") do
-      Mix.shell().info("  * skip #{path} (DalaHook already present)")
+      DalaDev.Output.info("  * skip #{path} (DalaHook already present)")
     else
       patched = DalaDev.Enable.inject_dala_hook(content)
       File.write!(path, patched)
-      Mix.shell().info([:green, "  * patch ", :reset, path, " (added DalaHook)"])
+      DalaDev.Output.info(["  * patch ", path, " (added DalaHook)"])
     end
   end
 
@@ -246,18 +251,18 @@ defmodule Mix.Tasks.Dala.Enable do
       content = File.read!(path)
 
       if String.contains?(content, "dala-bridge") do
-        Mix.shell().info("  * skip #{path} (dala-bridge already present)")
+        DalaDev.Output.info("  * skip #{path} (dala-bridge already present)")
       else
         patched = DalaDev.Enable.inject_dala_bridge_element(content)
         File.write!(path, patched)
-        Mix.shell().info([:green, "  * patch ", :reset, path, " (added dala-bridge element)"])
+        DalaDev.Output.info(["  * patch ", path, " (added dala-bridge element)"])
       end
     else
-      Mix.shell().info([:yellow, "  * skip root.html.heex (not found)", :reset])
-      Mix.shell().info("    Add the following manually inside <body> in your root layout:")
-      Mix.shell().info("    " <> DalaDev.Enable.dala_bridge_element())
-      Mix.shell().info("    Without this element DalaHook never mounts and window.dala")
-      Mix.shell().info("    will not route through LiveView. See guides/liveview.md.")
+      DalaDev.Output.warn("  * skip root.html.heex (not found)")
+      DalaDev.Output.hint("Add the following manually inside <body> in your root layout:")
+      DalaDev.Output.info("    " <> DalaDev.Enable.dala_bridge_element())
+      DalaDev.Output.info("Without this element DalaHook never mounts and window.dala")
+      DalaDev.Output.info("will not route through LiveView. See guides/liveview.md.")
     end
   end
 
@@ -271,10 +276,10 @@ defmodule Mix.Tasks.Dala.Enable do
       content = File.read!(path)
 
       if String.contains?(content, "liveview_port") do
-        Mix.shell().info("  * skip #{path} (liveview_port already set)")
+        DalaDev.Output.info("  * skip #{path} (liveview_port already set)")
       else
         File.write!(path, content <> "\n#{liveview_line}\n")
-        Mix.shell().info([:green, "  * patch ", :reset, path, " (added liveview_port)"])
+        DalaDev.Output.info(["  * patch ", path, " (added liveview_port)"])
       end
     else
       File.write!(path, """
@@ -283,7 +288,7 @@ defmodule Mix.Tasks.Dala.Enable do
       #{liveview_line}
       """)
 
-      Mix.shell().info([:green, "  * create ", :reset, path])
+      DalaDev.Output.info(["  * create ", path])
     end
   end
 
@@ -296,15 +301,15 @@ defmodule Mix.Tasks.Dala.Enable do
       content = File.read!(plist)
 
       if String.contains?(content, key) do
-        Mix.shell().info("  * skip #{plist} (#{key} already present)")
+        DalaDev.Output.info("  * skip #{plist} (#{key} already present)")
       else
         entry = build_plist_entry(key, value, opts)
         patched = String.replace(content, "</dict>\n</plist>", "#{entry}\n</dict>\n</plist>")
         File.write!(plist, patched)
-        Mix.shell().info([:green, "  * patch ", :reset, plist, " (added #{key})"])
+        DalaDev.Output.info(["  * patch ", plist, " (added #{key})"])
       end
     else
-      Mix.shell().info("  * skip iOS (no Info.plist found under ios/)")
+      DalaDev.Output.warn("  * skip iOS (no Info.plist found under ios/)")
     end
   end
 
@@ -326,7 +331,7 @@ defmodule Mix.Tasks.Dala.Enable do
   end
 
   defp ios_noop(feature, reason) do
-    Mix.shell().info("  * iOS #{feature}: #{reason}")
+    DalaDev.Output.info("  * iOS #{feature}: #{reason}")
   end
 
   # ── Android manifest helpers ──────────────────────────────────────────────
@@ -338,15 +343,13 @@ defmodule Mix.Tasks.Dala.Enable do
       content = File.read!(manifest)
 
       if String.contains?(content, "networkSecurityConfig") do
-        Mix.shell().info("  * skip #{manifest} (networkSecurityConfig already present)")
+        DalaDev.Output.info("  * skip #{manifest} (networkSecurityConfig already present)")
       else
         patched = DalaDev.Enable.inject_android_network_security_config(content)
         File.write!(manifest, patched)
 
-        Mix.shell().info([
-          :green,
+        DalaDev.Output.info([
           "  * patch ",
-          :reset,
           manifest,
           " (added networkSecurityConfig for cleartext HTTP to 127.0.0.1)"
         ])
@@ -354,7 +357,7 @@ defmodule Mix.Tasks.Dala.Enable do
 
       write_android_network_security_config(project_dir)
     else
-      Mix.shell().info("  * skip Android (AndroidManifest.xml not found)")
+      DalaDev.Output.warn("  * skip Android (AndroidManifest.xml not found)")
     end
   end
 
@@ -363,11 +366,11 @@ defmodule Mix.Tasks.Dala.Enable do
     path = Path.join(xml_dir, "network_security_config.xml")
 
     if File.exists?(path) do
-      Mix.shell().info("  * skip #{path} (already exists)")
+      DalaDev.Output.info("  * skip #{path} (already exists)")
     else
       File.mkdir_p!(xml_dir)
       File.write!(path, DalaDev.Enable.network_security_config_xml())
-      Mix.shell().info([:green, "  * create ", :reset, path])
+      DalaDev.Output.info(["  * create ", path])
     end
   end
 
@@ -379,16 +382,16 @@ defmodule Mix.Tasks.Dala.Enable do
       tag = ~s(<uses-permission android:name="#{permission}"/>)
 
       if String.contains?(content, permission) do
-        Mix.shell().info("  * skip #{manifest} (#{permission} already present)")
+        DalaDev.Output.info("  * skip #{manifest} (#{permission} already present)")
       else
         patched =
           String.replace(content, "<application", "#{tag}\n    <application", global: false)
 
         File.write!(manifest, patched)
-        Mix.shell().info([:green, "  * patch ", :reset, manifest, " (added #{permission})"])
+        DalaDev.Output.info(["  * patch ", manifest, " (added #{permission})"])
       end
     else
-      Mix.shell().info("  * skip Android (AndroidManifest.xml not found)")
+      DalaDev.Output.warn("  * skip Android (AndroidManifest.xml not found)")
     end
   end
 
@@ -399,7 +402,7 @@ defmodule Mix.Tasks.Dala.Enable do
       content = File.read!(manifest)
 
       if String.contains?(content, "FileProvider") do
-        Mix.shell().info("  * skip #{manifest} (FileProvider already present)")
+        DalaDev.Output.info("  * skip #{manifest} (FileProvider already present)")
       else
         provider_xml =
           "        <provider\n" <>
@@ -418,12 +421,12 @@ defmodule Mix.Tasks.Dala.Enable do
           )
 
         File.write!(manifest, patched)
-        Mix.shell().info([:green, "  * patch ", :reset, manifest, " (added FileProvider)"])
+        DalaDev.Output.info(["  * patch ", manifest, " (added FileProvider)"])
 
         write_file_provider_paths(project_dir)
       end
     else
-      Mix.shell().info("  * skip Android (AndroidManifest.xml not found)")
+      DalaDev.Output.warn("  * skip Android (AndroidManifest.xml not found)")
     end
   end
 
@@ -432,7 +435,7 @@ defmodule Mix.Tasks.Dala.Enable do
     path = Path.join(xml_dir, "file_provider_paths.xml")
 
     if File.exists?(path) do
-      Mix.shell().info("  * skip #{path} (already exists)")
+      DalaDev.Output.info("  * skip #{path} (already exists)")
     else
       File.mkdir_p!(xml_dir)
 
@@ -445,7 +448,7 @@ defmodule Mix.Tasks.Dala.Enable do
       </paths>
       """)
 
-      Mix.shell().info([:green, "  * create ", :reset, path])
+      DalaDev.Output.info(["  * create ", path])
     end
   end
 
@@ -456,7 +459,7 @@ defmodule Mix.Tasks.Dala.Enable do
   end
 
   defp android_noop(feature, reason) do
-    Mix.shell().info("  * Android #{feature}: #{reason}")
+    DalaDev.Output.info("  * Android #{feature}: #{reason}")
   end
 
   # ── Helpers ───────────────────────────────────────────────────────────────

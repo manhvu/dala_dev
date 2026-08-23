@@ -31,7 +31,7 @@ defmodule DalaDev.ErrorTest do
     test "formats complex reason" do
       reason = {:badmatch, 42}
       formatted = DalaDev.Error.format({:error, reason})
-      assert is_binary(formatted)
+      assert formatted == inspect(reason)
     end
   end
 

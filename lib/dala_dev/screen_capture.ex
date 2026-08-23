@@ -157,7 +157,7 @@ defmodule DalaDev.ScreenCapture do
       "/sdcard/dala_screenrecord.mp4"
     ]
 
-    IO.puts("Recording for #{duration}s... (Ctrl+C to stop early)")
+    DalaDev.Output.info("Recording for #{duration}s... (Ctrl+C to stop early)")
 
     case System.cmd("adb", args, stderr_to_stdout: true, into: IO.stream(:stdio, 1)) do
       {_, 0} ->
@@ -220,7 +220,7 @@ defmodule DalaDev.ScreenCapture do
       save_as
     ]
 
-    IO.puts("Recording for #{duration}s...")
+    DalaDev.Output.info("Recording for #{duration}s...")
 
     # Start recording in background
     port = Port.open({:spawn, "xcrun #{Enum.join(args, " ")}"}, [:binary, :exit_status])
@@ -276,7 +276,7 @@ defmodule DalaDev.ScreenCapture do
 
       args = ["-u", udid, "-d", to_string(duration), save_as]
 
-      IO.puts("Recording for #{duration}s...")
+      DalaDev.Output.info("Recording for #{duration}s...")
 
       case System.cmd("idevicerecord", args, stderr_to_stdout: true) do
         {_, 0} -> {:ok, save_as}
@@ -301,7 +301,7 @@ defmodule DalaDev.ScreenCapture do
       end)
 
     url = "http://localhost:#{port}/"
-    IO.puts("Screen preview available at: #{url}")
+    DalaDev.Output.info("Screen preview available at: #{url}")
 
     {:ok, pid}
   end
@@ -309,7 +309,7 @@ defmodule DalaDev.ScreenCapture do
   defp serve_preview(_device, port, _fps, _scale) do
     # Simplified preview server - in production, use Bandit/Plug
     # This is a placeholder that shows the concept
-    IO.puts("Preview server started on port #{port}")
+    DalaDev.Output.info("Preview server started on port #{port}")
 
     # Keep process alive
     receive do

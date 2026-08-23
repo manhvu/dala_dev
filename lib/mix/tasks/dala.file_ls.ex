@@ -37,6 +37,9 @@ defmodule Mix.Tasks.Dala.FileLs do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, positional, _} = OptionParser.parse(args, switches: @switches)
 
     remote_path =
@@ -50,9 +53,9 @@ defmodule Mix.Tasks.Dala.FileLs do
 
     case DalaDev.FileTransfer.ls(remote_path, device: device_id) do
       {:ok, files} ->
-        IO.puts("")
-        Enum.each(files, &IO.puts("  #{&1}"))
-        IO.puts("")
+        DalaDev.Output.info("")
+        Enum.each(files, &DalaDev.Output.info("  #{&1}"))
+        DalaDev.Output.info("")
 
       {:error, reason} ->
         Mix.raise(reason)

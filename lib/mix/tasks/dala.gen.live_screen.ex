@@ -82,6 +82,8 @@ defmodule Mix.Tasks.Dala.Gen.LiveScreen do
 
   @impl Mix.Task
   def run(argv) do
+    DalaDev.Output.configure([])
+
     case argv do
       [] ->
         Mix.raise("Usage: mix dala.gen.live_screen NAME [PATH]")
@@ -118,7 +120,7 @@ defmodule Mix.Tasks.Dala.Gen.LiveScreen do
     write_file(live_path, live_view_template(live_module, web_module, name, snake_name))
     write_file(screen_path, screen_template(screen_module, url_path))
 
-    Mix.shell().info("""
+    DalaDev.Output.info("""
 
     Generated:
       #{live_path}
@@ -148,11 +150,11 @@ defmodule Mix.Tasks.Dala.Gen.LiveScreen do
 
   defp write_file(path, content) do
     if File.exists?(path) do
-      Mix.shell().info("  * skip #{path} (already exists)")
+      DalaDev.Output.info("  * skip #{path} (already exists)")
     else
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
-      Mix.shell().info([:green, "  * create ", :reset, path])
+      DalaDev.Output.info(["  * create ", path])
     end
   end
 

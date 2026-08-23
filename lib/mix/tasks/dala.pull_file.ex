@@ -30,6 +30,8 @@ defmodule Mix.Tasks.Dala.PullFile do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
     {opts, positional, _} = OptionParser.parse(args, switches: @switches)
 
     case positional do
@@ -37,7 +39,7 @@ defmodule Mix.Tasks.Dala.PullFile do
         on_conflict = parse_conflict(Keyword.get(opts, :on_conflict, "overwrite"))
         device_id = opts[:device]
         progress? = Keyword.get(opts, :progress, false)
-        IO.puts("")
+        DalaDev.Output.info("")
 
         results =
           DalaDev.FileTransfer.pull(remote_path, local_path,
@@ -65,14 +67,14 @@ defmodule Mix.Tasks.Dala.PullFile do
   defp summarize(results) do
     ok = for {:ok, _} <- results, do: true
     err = for {:error, _} <- results, do: true
-    IO.puts("")
+    DalaDev.Output.info("")
 
     if length(ok) > 0 do
-      IO.puts("#{IO.ANSI.green()}Transferred from #{length(ok)} device(s).#{IO.ANSI.reset()}")
+      DalaDev.Output.success("Transferred from #{length(ok)} device(s).")
     end
 
     if length(err) > 0 do
-      IO.puts("#{IO.ANSI.red()}Failed on #{length(err)} device(s).#{IO.ANSI.reset()}")
+      DalaDev.Output.error("Failed on #{length(err)} device(s).")
     end
   end
 end

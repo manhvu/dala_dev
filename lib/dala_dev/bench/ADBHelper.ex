@@ -6,6 +6,14 @@ defmodule DalaDev.Bench.ADBHelper do
   battery bench and preflight modules.
   """
 
+  # Compiled at module-attribute expansion time via
+  # `DalaDev.Utils.compile_regex/2` (compile-time regex sigil literals are unsafe
+  # on Elixir 1.19 / OTP 28.0+).
+  @battery_level_pattern DalaDev.Utils.compile_regex("^\\s*level:\\s*(\\d+)", "m")
+  @wifi_ip_pattern DalaDev.Utils.compile_regex(
+                     "\\bsrc\\s+(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})"
+                   )
+
   @doc """
   Checks if ADB is available and a device is reachable.
 
@@ -120,7 +128,7 @@ defmodule DalaDev.Bench.ADBHelper do
   def battery_level(serial) do
     case System.cmd("adb", ["-s", serial, "shell", "dumpsys", "battery"], stderr_to_stdout: true) do
       {out, 0} ->
-        case Regex.run(~r/^\s*level:\s*(\d+)/m, out) do
+        case Regex.run(@battery_level_pattern, out) do
           [_, n_str] ->
             case Integer.parse(n_str) do
               {n, _} when n in 0..100 -> {:ok, n}
@@ -173,8 +181,10 @@ defmodule DalaDev.Bench.ADBHelper do
   Checks if a device is reachable via ADB.
   """
   @spec device_ok?(String.t()) :: boolean()
-  def device_ok?(device) do
-    case System.cmd("adb", ["-s", device, "shell", "echo", "ok"], stderr_to_stdout: true) do
+  def device_ok?(%DalaDev.Device{serial: serial}), do: device_ok?(serial)
+
+  def device_ok?(serial) when is_binary(serial) do
+    case System.cmd("adb", ["-s", serial, "shell", "echo", "ok"], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
@@ -200,7 +210,7 @@ defmodule DalaDev.Bench.ADBHelper do
            stderr_to_stdout: true
          ) do
       {out, 0} ->
-        case Regex.run(~r/\bsrc\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/, out) do
+        case Regex.run(@wifi_ip_pattern, out) do
           [_, ip] -> {:ok, ip}
           _ -> {:error, "could not determine device IP"}
         end

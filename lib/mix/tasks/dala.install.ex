@@ -56,6 +56,10 @@ defmodule Mix.Tasks.Dala.Install do
 
   @impl Mix.Task
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+
+    DalaDev.Output.configure([])
+
     {opts, _args, _} = OptionParser.parse(argv, strict: @switches)
 
     project_dir = File.cwd!()
@@ -68,7 +72,7 @@ defmodule Mix.Tasks.Dala.Install do
     download_otp()
     setup_icon(project_dir, opts[:icon])
 
-    Mix.shell().info("""
+    DalaDev.Output.info("""
 
     Dala project ready!
 
@@ -84,40 +88,40 @@ defmodule Mix.Tasks.Dala.Install do
   # ── OTP download ─────────────────────────────────────────────────────────────
 
   defp download_otp do
-    Mix.shell().info("Ensuring OTP releases are cached...")
+    DalaDev.Output.step("Ensuring OTP releases are cached")
 
     if has_android_project?() do
       case DalaDev.OtpDownloader.ensure_android("arm64-v8a") do
         {:ok, path} ->
-          Mix.shell().info([:green, "* Android arm64 OTP: #{path}", :reset])
+          DalaDev.Output.success("Android arm64 OTP: #{path}")
 
         {:error, reason} ->
-          Mix.shell().error("Warning: Android arm64 OTP download failed: #{reason}")
+          DalaDev.Output.error("Android arm64 OTP download failed: #{reason}")
       end
 
       case DalaDev.OtpDownloader.ensure_android("armeabi-v7a") do
         {:ok, path} ->
-          Mix.shell().info([:green, "* Android arm32 OTP: #{path}", :reset])
+          DalaDev.Output.success("Android arm32 OTP: #{path}")
 
         {:error, reason} ->
-          Mix.shell().error("Warning: Android arm32 OTP download failed: #{reason}")
+          DalaDev.Output.error("Android arm32 OTP download failed: #{reason}")
       end
     else
-      Mix.shell().info([:yellow, "* Android OTP skipped — no android/ in project", :reset])
+      DalaDev.Output.warn("Android OTP skipped — no android/ in project")
     end
 
     if has_ios_project?() and match?({:unix, :darwin}, :os.type()) do
       case DalaDev.OtpDownloader.ensure_ios_sim() do
-        {:ok, path} -> Mix.shell().info([:green, "* iOS OTP: #{path}", :reset])
-        {:error, reason} -> Mix.shell().error("Warning: iOS OTP download failed: #{reason}")
+        {:ok, path} -> DalaDev.Output.success("iOS OTP: #{path}")
+        {:error, reason} -> DalaDev.Output.error("iOS OTP download failed: #{reason}")
       end
     else
       cond do
         not has_ios_project?() ->
-          Mix.shell().info([:yellow, "* iOS OTP skipped — no ios/ in project", :reset])
+          DalaDev.Output.warn("iOS OTP skipped — no ios/ in project")
 
         not match?({:unix, :darwin}, :os.type()) ->
-          Mix.shell().info([:yellow, "* iOS OTP skipped — non-macOS host", :reset])
+          DalaDev.Output.warn("iOS OTP skipped — non-macOS host")
 
         true ->
           :ok
@@ -153,7 +157,7 @@ defmodule Mix.Tasks.Dala.Install do
     if missing != [] do
       defaults = detect_defaults(project_dir)
 
-      Mix.shell().info("""
+      DalaDev.Output.info("""
 
       Configure your local build paths in dala.exs.
       These are machine-specific and gitignored.
@@ -169,7 +173,7 @@ defmodule Mix.Tasks.Dala.Install do
       write_dala_exs(dala_exs, new_cfg)
       write_local_properties(project_dir, new_cfg)
 
-      Mix.shell().info([:green, "* dala.exs configured", :reset])
+      DalaDev.Output.success("dala.exs configured")
     else
       # dala.exs already has all required paths (e.g. generated with --local).
       # Still sync local.properties if it has placeholder values.
@@ -252,7 +256,10 @@ defmodule Mix.Tasks.Dala.Install do
           |> ensure_sdk_dir(detect_android_sdk())
 
         File.write!(props, new_content)
-        Mix.shell().info([:green, "* android/local.properties configured", :reset])
+
+        unless Mix.env() == :test do
+          DalaDev.Output.info(["* android/local.properties configured"])
+        end
       end
     end
   end
@@ -366,20 +373,16 @@ defmodule Mix.Tasks.Dala.Install do
       ])
 
     if File.exists?(placeholder) do
-      Mix.shell().info([
-        :cyan,
-        "* icons already present — skipping (run `mix dala.icon` to replace)",
-        :reset
-      ])
+      DalaDev.Output.info(
+        "* icons already present — skipping (run `mix dala.icon` to replace)"
+      )
     else
-      Mix.shell().info("Writing Dala logo as placeholder icon...")
+      DalaDev.Output.step("Writing Dala logo as placeholder icon")
       DalaDev.IconGenerator.use_dala_logo(project_dir)
 
-      Mix.shell().info([
-        :green,
-        "* placeholder icons written (run `mix dala.icon` to customise)",
-        :reset
-      ])
+      DalaDev.Output.success(
+        "placeholder icons written (run `mix dala.icon` to customise)"
+      )
     end
   end
 
@@ -388,8 +391,8 @@ defmodule Mix.Tasks.Dala.Install do
       Mix.raise("Source file not found: #{source}")
     end
 
-    Mix.shell().info("Generating app icon from #{source}...")
+    DalaDev.Output.step("Generating app icon from #{source}")
     DalaDev.IconGenerator.generate_from_source(source, project_dir)
-    Mix.shell().info([:green, "* icons written", :reset])
+    DalaDev.Output.success("icons written")
   end
 end

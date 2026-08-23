@@ -29,6 +29,14 @@ Complete reference for all `mix dala.*` commands with detailed explanations of h
   - [mix dala.observer](#mix-dalaobserver)
   - [mix dala.debug](#mix-daladebug)
   - [mix dala.web](#mix-dalaweb)
+- [Device Utilities](#device-utilities)
+  - [mix dala.reset](#mix-dalareset)
+  - [mix dala.shell](#mix-dalashell)
+  - [mix dala.port](#mix-dalaport)
+  - [mix dala.link](#mix-dalalink)
+  - [mix dala.clipboard](#mix-dalaclipboard)
+  - [mix dala.location](#mix-dalalocation)
+  - [mix dala.env](#mix-dalaenv)
 - [Utilities](#utilities)
   - [mix dala.cache](#mix-dalacache)
   - [mix dala.enable](#mix-dalaenable)
@@ -210,6 +218,7 @@ mix dala.deploy --native
 - `--native` — Build native binaries before pushing BEAMs
 - `--no-restart` — Push BEAMs but don't restart the app
 - `--device <id>` — Target a specific device (use `mix dala.devices` to find IDs)
+- `--all` — Target every connected device; with `--native --ios`, builds **both** the physical iPhone and the simulator instead of letting the physical branch win silently
 - `--schedulers <N>` — Set BEAM scheduler count (saved to dala.exs)
 - `--beam-flags "<flags>"` — Arbitrary BEAM flags string (saved to dala.exs)
 
@@ -331,6 +340,8 @@ mix dala.emulators --list --ios           # iOS only
 
 mix dala.emulators --start --id Pixel_8_API_34
 mix dala.emulators --start --id 78354490
+mix dala.emulators --start --id Pixel_8_API_34 --recipe selinux-off
+mix dala.emulators --start --id Pixel_8_API_34 --emulator_args "-no-audio -gpu host"
 
 mix dala.emulators --stop --id emulator-5554
 mix dala.emulators --stop --id 78354490
@@ -346,11 +357,15 @@ mix dala.emulators --stop --all           # everything booted
 - `--ios` — Filter to iOS only
 - `--id <id>` — Emulator/simulator ID (from `mix dala.emulators --list`)
 - `--all` — Apply to all running emulators/simulators
+- `--recipe <name>` — Android launch preset: `selinux-off`, `cold-boot`, `wipe-data`, `no-audio`, `gpu-host`
+- `--emulator_args "<flags>"` — Free-form Android emulator CLI flags
 
 #### Notes
 
 - `--id` accepts the same display IDs `mix dala.devices` shows, plus AVD names
 - For Android, the running serial (`emulator-5554`) also works
+- Recipes/flags apply to Android emulators only; they are ignored (with a warning) for iOS simulators
+- `selinux-off` is the workaround for the Android 17 preview where BEAM startup dies on cgroup SELinux denials — dev-only, never on real hardware (`wipe-data` is destructive)
 - Creating new AVDs or installing simulator runtimes is out of scope — use Android Studio / Xcode for that
 
 ---
@@ -773,6 +788,160 @@ mix dala.web
 
 ---
 
+## Device Utilities
+
+Small commands that remove recurring friction when working with emulators,
+simulators, and physical devices.
+
+### mix dala.reset
+
+**Short description**: Force-stop Dala app processes on devices, optionally wipe data
+
+More thorough than an app restart. On Android it force-stops **both** the
+project package and the `com.dala.<app>` wrapper (whose
+`BeamForegroundService` outlives the Activity — see `docs/reference/issues.md`
+#11), then clears the logcat buffer so the next launch starts clean.
+
+#### Usage
+
+```bash
+mix dala.reset                     # stop apps on all devices
+mix dala.reset --device 5554       # one device only
+mix dala.reset --data              # also wipe app data
+```
+
+#### Notes
+
+- Android: `am force-stop` both packages + `logcat -c`; `--data` adds `pm clear`
+- iOS Simulator: `simctl terminate`; `--data` adds `simctl uninstall`
+- Physical iOS: not supported — stop the app from the device itself
+
+---
+
+### mix dala.shell
+
+**Short description**: Shell into the app sandbox on a connected device
+
+Drops you into (or runs commands inside) the app's private data directory,
+without retyping serials/UDIDs.
+
+#### Usage
+
+```bash
+mix dala.shell                          # print the command for your shell
+mix dala.shell --exec "ls -la"          # run one command inside the sandbox
+mix dala.shell --exec "cat files/x.txt" --device 5554
+mix dala.shell --bundle com.example.myapp
+```
+
+#### Notes
+
+- Android: interactive `adb shell run-as <bundle>`; `--exec` runs via `run-as -c`
+- iOS Simulator: prints the data container path (`xcrun simctl get_app_container … data`);
+  `--exec` runs a shell from that directory
+- Physical iOS: not supported (no public sandbox exec)
+- Without `--exec`, the exact command is printed for copy-paste — interactive TTY
+  sessions are more reliable from your own terminal than through Mix
+
+---
+
+### mix dala.port
+
+**Short description**: Show dala's port map per device and find host-side squatters
+
+Prints which host ports belong to which device and flags processes squatting
+on them (stale iproxy, previous BEAM instances).
+
+#### Usage
+
+```bash
+mix dala.port                # table: device → dist / LV ports + status
+mix dala.port --kill         # free ports held by stale processes
+mix dala.port --json         # machine-readable
+```
+
+Ports covered: EPMD (4369), per-device dist (9100+), and the project's
+hashed LiveView port (4200–4999).
+
+---
+
+### mix dala.link
+
+**Short description**: Open a URL / deep link on connected devices
+
+The dev-machine side of `Dala.Platform.Linking`.
+
+#### Usage
+
+```bash
+mix dala.link https://example.com
+mix dala.link myapp://product/42 --device 78354490
+```
+
+Android uses `am start -a android.intent.action.VIEW -d <url>`;
+iOS Simulator uses `xcrun simctl openurl`. Any URL scheme is accepted
+(https or custom app schemes); scheme-less strings are rejected.
+
+---
+
+### mix dala.clipboard
+
+**Short description**: Read or set the device clipboard (iOS Simulator)
+
+Paste long strings into device text fields without typing them on the
+virtual keyboard.
+
+#### Usage
+
+```bash
+mix dala.clipboard get                     # print clipboard contents
+mix dala.clipboard set "some long token"   # replace clipboard contents
+mix dala.clipboard get --device 78354490
+```
+
+Supported on iOS Simulators (`xcrun simctl pbpaste/pbcopy`). Modern Android
+blocks background clipboard access — use `adb shell input text "…"` with the
+field focused instead.
+
+---
+
+### mix dala.location
+
+**Short description**: Spoof the device location (emulator / simulator)
+
+Pins a device's location for testing `Dala.Platform.Location` without moving.
+
+#### Usage
+
+```bash
+mix dala.location set 21.0278,105.8342
+mix dala.location set 37.7749,-122.4194 --device 5554
+mix dala.location reset                     # stop spoofing (iOS Simulator)
+```
+
+Works on Android **emulators** (`adb emu geo fix`) and iOS Simulators
+(`xcrun simctl location`). Physical devices need platform tooling.
+
+---
+
+### mix dala.env
+
+**Short description**: Print a machine-readable snapshot of the dala dev environment
+
+One-shot inventory: host toolchain versions, Android/iOS tool availability,
+project bundle id, and every connected device with its node name and dist port.
+Unlike `mix dala.doctor`, this diagnoses nothing — it answers "what do I have"
+for scripts, CI logs, and bug reports.
+
+#### Usage
+
+```bash
+mix dala.env            # human-readable summary
+mix dala.env --json     # single JSON document
+```
+
+---
+
 ## Utilities
 
 ### mix dala.cache
@@ -907,9 +1076,16 @@ mix dala.push --device <id>
 |---------|-------------|-------------|
 | `mix dala.devices` | List connected devices | — |
 | `mix dala.connect` | Connect IEx to devices | `--no-iex`, `--name`, `--cookie` |
-| `mix dala.deploy` | Deploy to devices | `--native`, `--device`, `--schedulers`, `--beam-flags` |
+| `mix dala.deploy` | Deploy to devices | `--native`, `--device`, `--all`, `--schedulers`, `--beam-flags` |
 | `mix dala.server` | Start dev dashboard | `--port` |
-| `mix dala.emulators` | Manage emulators | `--list`, `--start`, `--stop`, `--id` |
+| `mix dala.emulators` | Manage emulators | `--list`, `--start`, `--stop`, `--id`, `--recipe` |
+| `mix dala.reset` | Force-stop apps (+ wipe data) | `--data`, `--device` |
+| `mix dala.shell` | Shell into the app sandbox | `--exec`, `--bundle_id`, `--device` |
+| `mix dala.port` | Port map + squatter detection | `--kill`, `--json` |
+| `mix dala.link` | Open a URL / deep link | `--device` |
+| `mix dala.clipboard` | Device clipboard get/set | `get`, `set "text"`, `--device` |
+| `mix dala.location` | Spoof device location | `set <lat>,<lng>`, `reset`, `--device` |
+| `mix dala.env` | Environment snapshot (JSON) | `--json` |
 | `mix dala.doctor` | Diagnose setup issues | — |
 | `mix dala.provision` | iOS provisioning | `--distribution` |
 | `mix dala.battery_bench_android` | Android battery bench | `--duration`, `--preset`, `--no-build` |

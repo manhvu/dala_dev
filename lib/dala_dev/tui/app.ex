@@ -48,7 +48,7 @@ defmodule DalaDev.Tui.App do
   def handle_event(
         %ExRatatui.Event.Key{code: "q", kind: "press"},
         %{show_help: false} = state_data
-  ) do
+      ) do
     {:stop, state_data}
   end
 
@@ -73,11 +73,20 @@ defmodule DalaDev.Tui.App do
 
             remote ->
               queried = Remote.query(remote.node)
-              remotes = Enum.map(state_data.state.remotes, fn
-                %{node: node} when node == remote.node -> queried
-                r -> r
-              end)
-              new_state = %{new_state | selected_remote: queried, remotes: remotes, loading: false}
+
+              remotes =
+                Enum.map(state_data.state.remotes, fn
+                  %{node: node} when node == remote.node -> queried
+                  r -> r
+                end)
+
+              new_state = %{
+                new_state
+                | selected_remote: queried,
+                  remotes: remotes,
+                  loading: false
+              }
+
               %{state_data | state: new_state}
           end
 
@@ -122,25 +131,29 @@ defmodule DalaDev.Tui.App do
   end
 
   defp render_header(state, rect) do
-    [{%Paragraph{
-      text: Theme.brand_title(State.breadcrumb(state)),
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.focused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: Theme.brand_title(State.breadcrumb(state)),
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.focused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp render_footer(state, rect) do
-    [{%Paragraph{
-      text: footer_line(state),
-      block: %Block{
-        borders: [:all],
-        border_type: :rounded,
-        border_style: Theme.unfocused_border_style()
-      }
-    }, rect}]
+    [
+      {%Paragraph{
+         text: footer_line(state),
+         block: %Block{
+           borders: [:all],
+           border_type: :rounded,
+           border_style: Theme.unfocused_border_style()
+         }
+       }, rect}
+    ]
   end
 
   defp footer_line(%State{show_help: true}) do

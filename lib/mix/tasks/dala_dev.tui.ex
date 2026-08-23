@@ -23,8 +23,6 @@ defmodule Mix.Tasks.DalaDev.Tui do
 
   use Mix.Task
 
-
-
   @impl Mix.Task
   def run(_args) do
     # Ensure the application is started

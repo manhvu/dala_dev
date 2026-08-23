@@ -7,7 +7,8 @@ defmodule DalaDev.QR do
   @doc "Prints a QR code for the given content to stdout."
   @spec print(String.t()) :: :ok
   def print(content) do
-    IO.puts(render(content))
+    _ = DalaDev.Output.info(render(content))
+    :ok
   end
 
   @doc "Returns the QR code as a string of Unicode blocks."

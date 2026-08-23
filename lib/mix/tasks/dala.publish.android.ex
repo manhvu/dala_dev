@@ -74,6 +74,10 @@ defmodule Mix.Tasks.Dala.Publish.Android do
 
   @impl Mix.Task
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+
+    DalaDev.Output.configure([])
+
     {opts, args, _} = OptionParser.parse(argv, switches: @switches)
 
     unless File.dir?("android") do
@@ -84,13 +88,13 @@ defmodule Mix.Tasks.Dala.Publish.Android do
     gp_config = load_google_play_config!()
     track = opts[:track] || gp_config[:track] || "internal"
 
-    Mix.shell().info("")
-    Mix.shell().info("#{cyan()}=== Uploading to Google Play Console ===#{reset()}")
-    Mix.shell().info("  AAB:        #{aab_path}")
-    Mix.shell().info("  Package:    #{gp_config[:package_name]}")
-    Mix.shell().info("  Track:      #{track}")
-    Mix.shell().info("  Service Ac: #{gp_config[:service_account_json]}")
-    Mix.shell().info("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Uploading to Google Play Console")
+    DalaDev.Output.info("AAB:        #{aab_path}")
+    DalaDev.Output.info("Package:    #{gp_config[:package_name]}")
+    DalaDev.Output.info("Track:      #{track}")
+    DalaDev.Output.info("Service Ac: #{gp_config[:service_account_json]}")
+    DalaDev.Output.info("")
 
     # Validate service account JSON
     service_account = validate_service_account!(gp_config[:service_account_json])
@@ -204,8 +208,8 @@ defmodule Mix.Tasks.Dala.Publish.Android do
   end
 
   defp upload_to_google_play(aab_path, gp_config, track, service_account, verbose) do
-    Mix.shell().info("Uploading AAB to Google Play (#{track} track)...")
-    Mix.shell().info("(This may take several minutes)")
+    DalaDev.Output.step("Uploading AAB to Google Play (#{track} track)")
+    DalaDev.Output.info("(This may take several minutes)")
 
     # Use Google API Elixir client or shell out to gcloud
     # For now, we'll provide a comprehensive implementation using the API
@@ -223,8 +227,8 @@ defmodule Mix.Tasks.Dala.Publish.Android do
   defp upload_via_api(_aab_path, _gp_config, _track, _service_account, _verbose) do
     # This is a simplified implementation
     # In production, you'd use the Google Play Developer API with proper OAuth2
-    Mix.shell().info("")
-    Mix.shell().info("Using Google Play Developer API...")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Using Google Play Developer API")
 
     # Note: Full API implementation requires:
     # 1. OAuth2 JWT authentication with service account
@@ -241,7 +245,7 @@ defmodule Mix.Tasks.Dala.Publish.Android do
     Options:
     1. Install Google Cloud SDK and use: mix dala.publish.android (will use gcloud)
     2. Use the Google Play Console web interface to upload manually:
-       #{cyan()}https://play.google.com/console#{reset()}
+       https://play.google.com/console
 
     To install gcloud:
       brew install --cask google-cloud-sdk  # macOS
@@ -253,30 +257,28 @@ defmodule Mix.Tasks.Dala.Publish.Android do
     # Authenticate with service account
     json_path = Path.expand(gp_config[:service_account_json])
 
-    Mix.shell().info("Authenticating with service account...")
+    DalaDev.Output.step("Authenticating with service account")
 
     {_, 0} =
       System.cmd(gcloud_path, ["auth", "activate-service-account", "--key-file", json_path])
 
     # Upload using gcloud (this is conceptual - actual gcloud commands may vary)
     # The actual implementation depends on gcloud's support for Play Console
-    Mix.shell().info("")
+    DalaDev.Output.info("")
 
-    Mix.shell().info(
-      "Note: gcloud support for Play Console uploads may require additional setup."
+    DalaDev.Output.warn(
+      "gcloud support for Play Console uploads may require additional setup."
     )
 
-    Mix.shell().info("")
-    Mix.shell().info("Please upload manually via Google Play Console:")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Please upload manually via Google Play Console:")
 
-    Mix.shell().info(
-      "  #{cyan()}https://play.google.com/console/developers/#{gp_config[:package_name]}/tracks#{reset()}"
+    DalaDev.Output.info(
+      "https://play.google.com/console/developers/#{gp_config[:package_name]}/tracks"
     )
 
-    Mix.shell().info("")
-    Mix.shell().info("Or use the Play Console API client library for Elixir.")
+    DalaDev.Output.info("")
+    DalaDev.Output.hint("Or use the Play Console API client library for Elixir.")
   end
 
-  defp cyan, do: IO.ANSI.cyan()
-  defp reset, do: IO.ANSI.reset()
 end

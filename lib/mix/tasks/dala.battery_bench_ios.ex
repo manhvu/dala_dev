@@ -143,6 +143,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
     unless match?({:unix, :darwin}, :os.type()) do
@@ -213,15 +215,15 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
         {wk, wp, opts[:scheme] || cfg[:ios_scheme] || detect_scheme!(wk, wp)}
       end
 
-    IO.puts("")
-    IO.puts("=== Dala Battery Benchmark (iOS) ===")
-    IO.puts("")
-    IO.puts("  Device:   #{udid}")
-    IO.puts("  Bundle:   #{pkg}")
-    IO.puts("  Scheme:   #{scheme}")
-    IO.puts("  Duration: #{duration}s (#{div(duration, 60)} min)")
-    IO.puts("  Mode:     #{describe_mode(opts)}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Battery Benchmark (iOS)")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Device:   #{udid}")
+    DalaDev.Output.info("Bundle:   #{pkg}")
+    DalaDev.Output.info("Scheme:   #{scheme}")
+    DalaDev.Output.info("Duration: #{duration}s (#{div(duration, 60)} min)")
+    DalaDev.Output.info("Mode:     #{describe_mode(opts)}")
+    DalaDev.Output.info("")
 
     unless device_ok?(udid) do
       Mix.raise("Cannot reach device #{udid} — check it is paired and on the same network.")
@@ -234,10 +236,10 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     unless no_build do
       {other_cflags, header_dir} = resolve_build_flags(opts)
 
-      IO.puts("=== Building iOS app ===")
+      DalaDev.Output.step("Building iOS app")
       app_path = build_app(workspace_kind, workspace_path, scheme, other_cflags, derived_data)
 
-      IO.puts("=== Installing on device ===")
+      DalaDev.Output.step("Installing on device")
       install_app!(udid, app_path)
 
       if header_dir, do: File.rm_rf!(header_dir)
@@ -245,7 +247,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
     # ── Launch app first so the BEAM is reachable for all battery reads ──────────
 
-    IO.puts("=== Launching app ===")
+    DalaDev.Output.step("Launching app")
     pid = launch_app!(udid, pkg)
     :timer.sleep(3000)
 
@@ -254,11 +256,11 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     # Connect to the phone's BEAM — used as fallback when ideviceinfo is
     # unavailable (WiFi-only mode) and for battery reads when screen is locked.
     # Best-effort: nil means RPC won't be available.
-    IO.puts("  Connecting to device BEAM...")
+    DalaDev.Output.step("Connecting to device BEAM")
     node = connect_beam_node(device_id, opts[:wifi_ip])
 
     if node do
-      IO.puts("  BEAM connected: #{node}")
+      DalaDev.Output.success("BEAM connected: #{node}")
 
       # If the user *didn't* pass --wifi-ip but we found the device anyway
       # (devicectl + ARP/EPMD scan, which can take 5–15 s on a cold network),
@@ -266,21 +268,21 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
       hint_wifi_ip(node, opts[:wifi_ip])
 
       if opts[:no_keep_alive] do
-        IO.puts("  (skipping background keep-alive — iOS will suspend the app when locked)")
+        DalaDev.Output.info("(skipping background keep-alive — iOS will suspend the app when locked)")
       else
-        IO.puts("  Starting background keep-alive (silent audio session)...")
+        DalaDev.Output.step("Starting background keep-alive (silent audio session)...")
         :rpc.call(node, :dala_nif, :background_keep_alive, [], 5000)
       end
     else
-      IO.puts("  (BEAM not reachable — will use ideviceinfo only, screen must stay on)")
+      DalaDev.Output.warn("(BEAM not reachable — will use ideviceinfo only, screen must stay on)")
       hint_wifi_ip_on_failure(opts[:wifi_ip])
     end
 
     # ── Preflight ─────────────────────────────────────────────────────────────
 
     unless opts[:skip_preflight] do
-      IO.puts("")
-      IO.puts("=== Preflight checks ===")
+      DalaDev.Output.info("")
+      DalaDev.Output.step("Preflight checks")
 
       preflight_results =
         Preflight.run(
@@ -292,11 +294,11 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
           require_keep_alive: opts[:no_keep_alive] != true
         )
 
-      IO.puts(Preflight.pretty(preflight_results))
+      DalaDev.Output.info(Preflight.pretty(preflight_results))
 
       unless Preflight.all_ok?(preflight_results) do
-        IO.puts("")
-        IO.puts(">>> Preflight checks reported issues. Continue anyway? (y/N)")
+        DalaDev.Output.info("")
+        DalaDev.Output.warn("Preflight checks reported issues. Continue anyway? (y/N)")
 
         case IO.gets("") |> String.trim() do
           "y" -> :ok
@@ -309,12 +311,12 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     battery = read_battery_required(hw_udid, max_mah, node)
     unit = if max_mah, do: "mAh", else: "%"
 
-    IO.puts("")
-    IO.puts("Battery:    #{format_battery(battery, max_mah)}")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Battery:    #{format_battery(battery, max_mah)}")
 
     if battery.pct < 80 do
-      IO.puts("WARNING: Battery below 80%. Charge to >90% for comparable results.")
-      IO.puts("Continue? (y/N)")
+      DalaDev.Output.warn("Battery below 80%. Charge to >90% for comparable results.")
+      DalaDev.Output.info("Continue? (y/N)")
 
       case IO.gets("") |> String.trim() do
         "y" -> :ok
@@ -322,35 +324,35 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
       end
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     total_min = div(duration, 60)
     start_b = read_battery_required(hw_udid, max_mah, node)
     start_val = battery_value(start_b, max_mah)
     start_time = System.monotonic_time(:second)
 
-    IO.puts("Start:  #{format_battery(start_b, max_mah)}")
-    IO.puts("")
+    DalaDev.Output.info("Start:  #{format_battery(start_b, max_mah)}")
+    DalaDev.Output.info("")
 
     screen_locked =
       if node do
-        IO.puts(">>> Step 1 of 2 — Unplug the USB cable (if connected), then press Enter.")
+        DalaDev.Output.step("Step 1 of 2 — Unplug the USB cable (if connected), then press Enter.")
         IO.gets("")
-        IO.puts("")
-        IO.puts(">>> Step 2 of 2 — Locking the screen now...")
+        DalaDev.Output.info("")
+        DalaDev.Output.step("Step 2 of 2 — Locking the screen now...")
         result = lock_screen_auto(hw_udid)
-        IO.puts("")
+        DalaDev.Output.info("")
         result
       else
-        IO.puts(">>> Unplug the USB cable (if connected), keep the screen ON, then press Enter.")
-        IO.puts("    (BEAM not connected — battery reads require USB or an active screen.)")
+        DalaDev.Output.info(">>> Unplug the USB cable (if connected), keep the screen ON, then press Enter.")
+        DalaDev.Output.warn("(BEAM not connected — battery reads require USB or an active screen.)")
         IO.gets("")
         false
       end
 
-    IO.puts("Running for #{div(duration, 60)} min...")
-    IO.puts("")
-    IO.puts("")
+    DalaDev.Output.info("Running for #{div(duration, 60)} min...")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("")
 
     # ── Open CSV log unless --no-csv ───────────────────────────────────────
     log =
@@ -366,7 +368,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
               "run_#{System.os_time(:second)}.csv"
             ])
 
-        IO.puts("  Logging samples to #{log_path}")
+        DalaDev.Output.info("Logging samples to #{log_path}")
         Logger.open(log_path, start_ts_ms: System.monotonic_time(:millisecond))
       end
 
@@ -381,9 +383,9 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     observer = DeviceObserver.subscribe(node, categories: [:app, :display, :memory])
 
     if observer.subscribed? do
-      IO.puts("  Subscribed to Dala.Device.Device events on #{inspect(node)}")
+      DalaDev.Output.info("Subscribed to Dala.Device.Device events on #{inspect(node)}")
     else
-      IO.puts("  (Dala.Device.Device events not available — using expected screen state)")
+      DalaDev.Output.warn("(Dala.Device.Device events not available — using expected screen state)")
     end
 
     {final_log, final_reconnector, _final_observer} =
@@ -419,13 +421,13 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
     # ── Results ────────────────────────────────────────────────────────────────
 
-    IO.puts("")
-    IO.puts("=== Collecting results ===")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Collecting results")
     if node, do: :rpc.call(node, :dala_nif, :background_stop, [], 5000)
     if pid, do: terminate_app(udid, pid)
     :timer.sleep(1000)
 
-    IO.puts("  Unlock the phone to read final battery level...")
+    DalaDev.Output.info("Unlock the phone to read final battery level...")
     end_b = read_battery_required(hw_udid, max_mah, node, 1, 60)
     end_val = battery_value(end_b, max_mah)
     drain = start_val - end_val
@@ -436,21 +438,21 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
         do: Float.round(drain * 3600 / elapsed_actual, 1),
         else: 0.0
 
-    IO.puts("")
-    IO.puts("=== Summary: #{describe_mode(opts)} ===")
-    IO.puts("")
-    IO.puts("  Duration: #{div(elapsed_actual, 60)} min #{rem(elapsed_actual, 60)} sec")
-    IO.puts("  Start:    #{format_battery(start_b, max_mah)}")
-    IO.puts("  End:      #{format_battery(end_b, max_mah)}")
-    IO.puts("  Drain:    #{Float.round(drain * 1.0, 1)} #{unit}")
-    IO.puts("  Rate:     #{rate} #{unit}/hr")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Summary", describe_mode(opts))
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Duration: #{div(elapsed_actual, 60)} min #{rem(elapsed_actual, 60)} sec")
+    DalaDev.Output.info("Start:    #{format_battery(start_b, max_mah)}")
+    DalaDev.Output.info("End:      #{format_battery(end_b, max_mah)}")
+    DalaDev.Output.info("Drain:    #{Float.round(drain * 1.0, 1)} #{unit}")
+    DalaDev.Output.info("Rate:     #{rate} #{unit}/hr")
 
     if is_nil(max_mah) do
-      IO.puts("")
-      IO.puts("Note: BatteryMaxCapacity unavailable; showing percentage. 1% ≈ 40–60 mAh.")
+      DalaDev.Output.info("")
+      DalaDev.Output.info("Note: BatteryMaxCapacity unavailable; showing percentage. 1% ≈ 40–60 mAh.")
     end
 
-    IO.puts("")
+    DalaDev.Output.info("")
 
     # ── Optional: precise USB read for 1% resolution ─────────────────────
     # iOS UIDevice.batteryLevel is clamped to 5% increments at the OS level
@@ -464,20 +466,20 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
       log_path = log.path
       Logger.close(log)
 
-      IO.puts("=== Probe-based summary ===")
-      IO.puts("")
+      DalaDev.Output.step("Probe-based summary")
+      DalaDev.Output.info("")
 
       try do
         metrics = Summary.from_csv(log_path)
-        IO.puts(Summary.pretty(metrics))
-        IO.puts("")
-        IO.puts("Full log: #{log_path}")
+        DalaDev.Output.info(Summary.pretty(metrics))
+        DalaDev.Output.info("")
+        DalaDev.Output.info("Full log: #{log_path}")
       rescue
         e ->
-          IO.puts("  (could not parse #{log_path}: #{Exception.message(e)})")
+          DalaDev.Output.warn("(could not parse #{log_path}: #{Exception.message(e)})")
       end
 
-      IO.puts("")
+      DalaDev.Output.info("")
     end
 
     File.rm_rf!(derived_data)
@@ -534,7 +536,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
           "  [#{ts}] #{elapsed_min}/#{opts[:total_min]} min — #{fragment} (−#{Float.round(drain * 1.0, 1)} #{opts[:unit]}#{rate_str})"
       end
 
-    IO.puts(line)
+    DalaDev.Output.info(line)
 
     # Reconnect logic — attempt Node.connect when in a recoverable state.
     now_ms = System.monotonic_time(:millisecond)
@@ -546,8 +548,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
         {:attempt, r} ->
           if opts[:node] && Node.connect(opts[:node]) do
-            IO.puts(
-              "    ↻ reconnected to #{opts[:node]} (attempt #{r.attempts}, total #{r.total_reconnects + 1})"
+            DalaDev.Output.success(
+              "↻ reconnected to #{opts[:node]} (attempt #{r.attempts}, total #{r.total_reconnects + 1})"
             )
 
             Reconnector.record_success(r)
@@ -566,9 +568,9 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
   defp precise_final_read(nil), do: :ok
 
   defp precise_final_read(hw_udid) when is_binary(hw_udid) do
-    IO.puts("iOS reports battery in 5% increments. For 1% precision: plug in USB now.")
+    DalaDev.Output.warn("iOS reports battery in 5% increments. For 1% precision: plug in USB now.")
 
-    IO.puts("Press Enter to read precise battery, or Ctrl-C to skip...")
+    DalaDev.Output.info("Press Enter to read precise battery, or Ctrl-C to skip...")
 
     case IO.gets("") do
       :eof ->
@@ -585,8 +587,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
                  stderr_to_stdout: true
                ) do
             {out, 0} ->
-              IO.puts("")
-              IO.puts("=== Precise battery (via ideviceinfo) ===")
+              DalaDev.Output.info("")
+              DalaDev.Output.step("Precise battery (via ideviceinfo)")
 
               fields =
                 out
@@ -601,17 +603,17 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
                   ])
                 end)
 
-              Enum.each(fields, &IO.puts("  " <> &1))
+              Enum.each(fields, &DalaDev.Output.info("  " <> &1))
 
             {out, _} ->
-              IO.puts("  (ideviceinfo failed — is USB connected? trust this Mac?)")
-              IO.puts("  " <> String.trim(out))
+              DalaDev.Output.warn("(ideviceinfo failed — is USB connected? trust this Mac?)")
+              DalaDev.Output.info("  " <> String.trim(out))
           end
         else
-          IO.puts("  (ideviceinfo not installed — `brew install libimobiledevice`)")
+          DalaDev.Output.warn("(ideviceinfo not installed — `brew install libimobiledevice`)")
         end
 
-        IO.puts("")
+        DalaDev.Output.info("")
     end
   end
 
@@ -634,7 +636,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     # ideviceinfo is needed for USB battery reads but not strictly required —
     # WiFi mode falls back to Erlang distribution RPC. Warn but don't abort.
     unless System.find_executable("ideviceinfo") do
-      IO.puts("""
+      DalaDev.Output.warn("""
       Note: ideviceinfo not found (brew install libimobiledevice).
       Battery readings will use Erlang distribution over WiFi instead.
       """)
@@ -660,20 +662,20 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
     {cflags, header_dir} = resolve_build_flags(opts)
     if header_dir, do: File.rm_rf!(header_dir)
 
-    IO.puts("")
-    IO.puts("=== Dala Battery Benchmark (iOS) — Dry Run ===")
-    IO.puts("")
-    IO.puts("  Device:   #{opts[:device] || "(auto-detect at run time)"}")
-    IO.puts("  Bundle:   #{pkg || "(NOT SET)"}")
-    IO.puts("  Scheme:   #{scheme}")
-    IO.puts("  Duration: #{duration}s (#{div(duration, 60)} min)")
-    IO.puts("  Mode:     #{describe_mode(opts)}")
-    IO.puts("  Flags:    #{if cflags == "", do: "(default Nerves tuning)", else: cflags}")
-    IO.puts("  Build:    #{if opts[:no_build], do: "skip (--no-build)", else: "yes"}")
-    IO.puts("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Dala Battery Benchmark (iOS) — Dry Run")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("Device:   #{opts[:device] || "(auto-detect at run time)"}")
+    DalaDev.Output.info("Bundle:   #{pkg || "(NOT SET)"}")
+    DalaDev.Output.info("Scheme:   #{scheme}")
+    DalaDev.Output.info("Duration: #{duration}s (#{div(duration, 60)} min)")
+    DalaDev.Output.info("Mode:     #{describe_mode(opts)}")
+    DalaDev.Output.info("Flags:    #{if cflags == "", do: "(default Nerves tuning)", else: cflags}")
+    DalaDev.Output.info("Build:    #{if opts[:no_build], do: "skip (--no-build)", else: "yes"}")
+    DalaDev.Output.info("")
 
-    IO.puts("Dry run complete — no prerequisites checked, no device contacted.")
-    IO.puts("")
+    DalaDev.Output.success("Dry run complete — no prerequisites checked, no device contacted.")
+    DalaDev.Output.info("")
   end
 
   # ── Build flags ──────────────────────────────────────────────────────────────
@@ -797,7 +799,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
           derived_data
         ] ++ cflags_arg ++ ["build"]
 
-    IO.puts("  Running xcodebuild (this may take a while)...")
+    DalaDev.Output.step("Running xcodebuild (this may take a while)")
 
     case System.cmd("xcodebuild", args, stderr_to_stdout: true, into: IO.stream()) do
       {_, 0} -> :ok
@@ -808,7 +810,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
     case Path.wildcard(Path.join(products_dir, "*.app")) do
       [app | _] ->
-        IO.puts("  Built: #{Path.basename(app)}")
+        DalaDev.Output.success("Built: #{Path.basename(app)}")
         app
 
       [] ->
@@ -817,7 +819,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
   end
 
   defp install_app!(udid, app_path) do
-    IO.puts("  Installing #{Path.basename(app_path)}...")
+    DalaDev.Output.info("Installing #{Path.basename(app_path)}...")
 
     case System.cmd(
            "xcrun",
@@ -858,7 +860,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
             String.to_integer(pid_str)
 
           nil ->
-            IO.puts("  App launched (could not parse PID from: #{String.trim(out)})")
+            DalaDev.Output.warn("App launched (could not parse PID from: #{String.trim(out)})")
             nil
         end
 
@@ -887,7 +889,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
       {out, _} ->
         # Non-fatal — app may have already exited
-        IO.puts("  terminate warning: #{String.trim(out)}")
+        DalaDev.Output.warn("terminate warning: #{String.trim(out)}")
     end
   end
 
@@ -895,8 +897,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
   # Returns true when the screen is locked (either automatically or by user).
   defp lock_screen_auto(nil) do
-    IO.puts("  No hardware UDID — please lock the phone now.")
-    IO.puts("  Press Enter once the screen is locked.")
+    DalaDev.Output.info("No hardware UDID — please lock the phone now.")
+    DalaDev.Output.info("Press Enter once the screen is locked.")
     IO.gets("")
     true
   end
@@ -904,13 +906,13 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
   defp lock_screen_auto(udid) do
     case System.cmd("idevicediagnostics", ["-u", udid, "sleep"], stderr_to_stdout: true) do
       {_, 0} ->
-        IO.puts("  Screen locked.")
+        DalaDev.Output.success("Screen locked.")
         :timer.sleep(1000)
         true
 
       _ ->
-        IO.puts("  Auto-lock failed — please lock the phone manually.")
-        IO.puts("  Press Enter once the screen is locked.")
+        DalaDev.Output.warn("Auto-lock failed — please lock the phone manually.")
+        DalaDev.Output.info("Press Enter once the screen is locked.")
         IO.gets("")
         true
     end
@@ -948,9 +950,7 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
   defp hint_wifi_ip(node, _wifi_ip) when is_atom(node) do
     case node |> Atom.to_string() |> String.split("@", parts: 2) do
       [_, host] when host != "127.0.0.1" and host != "localhost" ->
-        IO.puts(
-          "  #{IO.ANSI.faint()}tip: pass `--wifi-ip #{host}` next time to skip discovery#{IO.ANSI.reset()}"
-        )
+        DalaDev.Output.hint("tip: pass `--wifi-ip #{host}` next time to skip discovery")
 
       _ ->
         :ok
@@ -964,13 +964,9 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
   defp hint_wifi_ip_on_failure(wifi_ip) when is_binary(wifi_ip), do: :ok
 
   defp hint_wifi_ip_on_failure(_) do
-    IO.puts(
-      "  #{IO.ANSI.faint()}tip: if you know the iPhone's WiFi IP, pass `--wifi-ip <ip>` to#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.hint("tip: if you know the iPhone's WiFi IP, pass `--wifi-ip <ip>` to")
 
-    IO.puts(
-      "  #{IO.ANSI.faint()}     skip discovery entirely. `mix dala.devices` prints it after a deploy.#{IO.ANSI.reset()}"
-    )
+    DalaDev.Output.hint("tip: skip discovery entirely. `mix dala.devices` prints it after a deploy.")
   end
 
   defp connect_beam_node(device_id, explicit_wifi_ip) do
@@ -1000,8 +996,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
     cond do
       is_nil(device) ->
-        IO.puts(
-          "  attempt #{attempt}/#{@max_connect_attempts}: no device discovered " <>
+        DalaDev.Output.warn(
+          "attempt #{attempt}/#{@max_connect_attempts}: no device discovered " <>
             "(devicectl + ARP + EPMD scan all empty)"
         )
 
@@ -1016,8 +1012,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
             device.node
 
           false ->
-            IO.puts(
-              "  attempt #{attempt}/#{@max_connect_attempts}: found #{device.serial} at " <>
+            DalaDev.Output.warn(
+              "attempt #{attempt}/#{@max_connect_attempts}: found #{device.serial} at " <>
                 "#{device.host_ip || "?"} (#{device.node}) but Node.connect returned false " <>
                 "(BEAM not yet ready or cookie mismatch)"
             )
@@ -1028,8 +1024,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
           :ignored ->
             # Local node isn't alive (couldn't start it) — retrying won't help.
-            IO.puts(
-              "  attempt #{attempt}/#{@max_connect_attempts}: Node.connect returned :ignored — " <>
+            DalaDev.Output.error(
+              "attempt #{attempt}/#{@max_connect_attempts}: Node.connect returned :ignored — " <>
                 "local node never started, aborting retries"
             )
 
@@ -1396,8 +1392,8 @@ defmodule Mix.Tasks.Dala.BatteryBenchIos do
 
       {output, _} ->
         fallback = Macro.camelize(app_name())
-        IO.puts("  (warning: xcodebuild -list failed, assuming scheme \"#{fallback}\")")
-        IO.puts("  #{String.trim(output)}")
+        DalaDev.Output.warn("(warning: xcodebuild -list failed, assuming scheme \"#{fallback}\")")
+        DalaDev.Output.info(String.trim(output))
         fallback
     end
   end

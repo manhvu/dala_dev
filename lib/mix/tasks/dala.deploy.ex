@@ -26,6 +26,9 @@ defmodule Mix.Tasks.Dala.Deploy do
     * `--device <id>`         — target a specific device; use `mix dala.devices` to find IDs
     * `--schedulers <N>`      — set BEAM scheduler count (saved to dala.exs)
     * `--beam-flags "<flags>"` — arbitrary BEAM flags string (saved to dala.exs)
+    * `--dry-run`             — show what would be deployed without deploying
+    * `--quiet`               — suppress non-essential output (errors only)
+    * `--json`                — emit machine-readable JSON summary
 
   ## BEAM scheduler tuning
 
@@ -83,94 +86,208 @@ defmodule Mix.Tasks.Dala.Deploy do
     android: :boolean,
     ios: :boolean,
     device: :string,
+    all: :boolean,
     schedulers: :integer,
-    beam_flags: :string
+    beam_flags: :string,
+    quiet: :boolean,
+    json: :boolean,
+    dry_run: :boolean
   ]
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
+
+    DalaDev.Output.configure(quiet: opts[:quiet], json: opts[:json])
 
     restart = Keyword.get(opts, :restart, true)
     native = Keyword.get(opts, :native, false)
     device_id = opts[:device]
+    deploy_all_devices? = Keyword.get(opts, :all, false)
     platforms = resolve_platforms(opts)
+
     # Narrow once at the task level so build_all and deploy_all both see the
     # same platform list. Without this, the deployer iterates over the
     # irrelevant platform and `filter_by_device_id` emits a misleading
     # "No device matched" warning even when the targeted platform succeeded.
-    platforms = DalaDev.NativeBuild.narrow_platforms_for_device(platforms, device_id)
+    platforms =
+      if deploy_all_devices? do
+        platforms
+      else
+        DalaDev.NativeBuild.narrow_platforms_for_device(platforms, device_id)
+      end
+
     beam_flags = resolve_beam_flags(opts)
 
     # When no --device is given and we're doing a native iOS build, auto-detect
     # a connected physical device now so both the native build and the BEAM push
     # target the same device (not all simulators + the phone).
+    #
+    # --all reverses that: no single-device narrowing, and the native build
+    # covers every available iOS target (physical + simulator) instead of
+    # letting the physical branch win silently.
     effective_device_id =
-      device_id ||
-        if native and :ios in platforms,
-          do: DalaDev.NativeBuild.detect_physical_ios()
+      cond do
+        deploy_all_devices? -> nil
+        device_id -> device_id
+        native and :ios in platforms -> DalaDev.NativeBuild.detect_physical_ios()
+        true -> nil
+      end
 
-    IO.puts("")
+    DalaDev.Output.info("")
+
+    if deploy_all_devices? do
+      DalaDev.Output.info("--all: targeting every connected device")
+    end
 
     if native do
-      IO.puts("Fetching dependencies...")
+      DalaDev.Output.step("Fetching dependencies")
       mix = System.find_executable("mix")
       System.cmd(mix, ["deps.get"], into: IO.stream())
     end
 
     Mix.Task.run("compile")
-    IO.puts("\n#{IO.ANSI.cyan()}Deploying to devices...#{IO.ANSI.reset()}\n")
+
+    if opts[:dry_run] do
+      run_dry_run(platforms, effective_device_id, deploy_all_devices?)
+    else
+      run_deploy(
+        opts,
+        restart,
+        native,
+        platforms,
+        effective_device_id,
+        device_id,
+        beam_flags,
+        deploy_all_devices?
+      )
+    end
+  end
+
+  defp run_dry_run(platforms, device_id, all_devices?) do
+    DalaDev.Output.step("Dry run — no changes will be made")
+
+    devices = discover_devices(platforms, if(all_devices?, do: nil, else: device_id))
+
+    if devices == [] do
+      DalaDev.Output.warn("No devices found for platforms: #{inspect(platforms)}")
+      DalaDev.Output.hint("Run `mix dala.devices` to see what's connected")
+    else
+      Enum.each(devices, fn d ->
+        DalaDev.Output.info("  would deploy to: #{DalaDev.Device.summary(d)}")
+      end)
+
+      beam_dirs = DalaDev.Deployer.collect_beam_dirs()
+
+      DalaDev.Output.info("  would push #{DalaDev.Deployer.count_beams(beam_dirs)} BEAM file(s)")
+
+      DalaDev.Output.info("  native build: skipped (dry run)")
+    end
+
+    DalaDev.Output.success("Dry run complete — nothing was deployed")
+  end
+
+  defp discover_devices(platforms, device_id) do
+    android =
+      if :android in platforms,
+        do: DalaDev.Discovery.Android.list_devices() |> filter_devices(device_id),
+        else: []
+
+    ios =
+      if :ios in platforms and macos?(),
+        do: DalaDev.Discovery.IOS.list_devices() |> filter_devices(device_id),
+        else: []
+
+    android ++ ios
+  end
+
+  defp filter_devices(devices, nil), do: devices
+
+  defp filter_devices(devices, id),
+    do: Enum.filter(devices, &DalaDev.Device.match_id?(&1, id))
+
+  defp run_deploy(
+         opts,
+         restart,
+         native,
+         platforms,
+         effective_device_id,
+         device_id,
+         beam_flags,
+         all_devices?
+       ) do
+    DalaDev.Output.info("")
 
     native_ok =
       if native do
-        DalaDev.NativeBuild.build_all(platforms: platforms, device: effective_device_id)
+        DalaDev.NativeBuild.build_all(
+          platforms: platforms,
+          device: effective_device_id,
+          all_devices: all_devices?
+        )
       end
 
     # Skip BEAM push if native build failed — the APK/app bundle isn't installed
     # so run-as / simctl push would fail with misleading errors.
     if native and native_ok == false do
-      IO.puts("\n#{IO.ANSI.red()}Native build had failures — see errors above.#{IO.ANSI.reset()}")
+      DalaDev.Output.error("Native build had failures — see errors above.")
 
-      IO.puts(
-        "#{IO.ANSI.yellow()}Run `mix dala.doctor` to check your environment, or `mix dala.deploy` (without --native) once the issue is fixed.#{IO.ANSI.reset()}"
+      DalaDev.Output.hint(
+        "Run `mix dala.doctor` to check your environment, or `mix dala.deploy` (without --native) once the issue is fixed."
       )
 
       Mix.raise("Native build failed")
     end
 
     {deployed, failed} =
-      DalaDev.Deployer.deploy_all(
-        restart: restart,
-        platforms: platforms,
-        force_fs: native,
-        device: device_id,
-        ios_device: effective_device_id,
-        beam_flags: beam_flags
-      )
+      DalaDev.Output.timed("Deploying to devices", fn ->
+        DalaDev.Deployer.deploy_all(
+          restart: restart,
+          platforms: platforms,
+          force_fs: native,
+          device: device_id,
+          ios_device: effective_device_id,
+          beam_flags: beam_flags
+        )
+      end)
 
+    if opts[:json] do
+      DalaDev.Output.info(
+        Jason.encode!(%{
+          deployed: Enum.map(deployed, &device_json/1),
+          failed: Enum.map(failed, &device_json/1)
+        })
+      )
+    else
+      summarize(deployed, failed, restart)
+    end
+  end
+
+  defp device_json(d) do
+    %{name: d.name, serial: d.serial, platform: d.platform, status: d.status, error: d.error}
+  end
+
+  defp summarize(deployed, failed, restart) do
     if deployed == [] and failed == [] do
-      IO.puts("#{IO.ANSI.yellow()}No devices found.#{IO.ANSI.reset()}")
-      IO.puts("Try: mix dala.devices   to diagnose connection issues")
+      DalaDev.Output.warn("No devices found.")
+      DalaDev.Output.hint("Run `mix dala.devices` to diagnose connection issues")
     else
       if deployed != [] do
-        IO.puts("\n#{IO.ANSI.green()}Deployed to #{length(deployed)} device(s)#{IO.ANSI.reset()}")
+        DalaDev.Output.success("Deployed to #{length(deployed)} device(s)")
 
         if restart do
-          IO.puts(
-            "Apps restarted. Run #{IO.ANSI.cyan()}mix dala.connect#{IO.ANSI.reset()} to open IEx."
-          )
+          DalaDev.Output.hint("Apps restarted. Run `mix dala.connect` to open IEx.")
         else
-          IO.puts(
-            "BEAMs pushed. In IEx: #{IO.ANSI.cyan()}nl(MyModule)#{IO.ANSI.reset()} to hot-load."
-          )
+          DalaDev.Output.hint("BEAMs pushed. In IEx: nl(MyModule) to hot-load.")
         end
       end
 
       if failed != [] do
-        IO.puts("\n#{IO.ANSI.red()}Failed on #{length(failed)} device(s)#{IO.ANSI.reset()}")
+        DalaDev.Output.error("Failed on #{length(failed)} device(s)")
 
         Enum.each(failed, fn d ->
-          IO.puts("  ✗ #{d.name || d.serial}: #{d.error}")
+          DalaDev.Output.error("  #{d.name || d.serial}: #{d.error}")
         end)
       end
     end
@@ -191,9 +308,7 @@ defmodule Mix.Tasks.Dala.Deploy do
         if macos?() do
           [:ios]
         else
-          IO.puts(
-            "#{IO.ANSI.yellow()}Warning: --ios is only supported on macOS. Skipping iOS.#{IO.ANSI.reset()}"
-          )
+          DalaDev.Output.warn("--ios is only supported on macOS. Skipping iOS.")
 
           []
         end

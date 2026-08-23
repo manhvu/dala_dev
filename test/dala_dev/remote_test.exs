@@ -5,8 +5,8 @@ defmodule DalaDev.RemoteTest do
 
   describe "node management" do
     test "lists remote nodes" do
-      nodes = Remote.nodes()
-      assert is_list(nodes)
+      # nodes/0 reports the currently connected remote nodes exactly
+      assert Remote.nodes() == Node.list()
     end
 
     test "selects and gets node" do
@@ -26,8 +26,7 @@ defmodule DalaDev.RemoteTest do
       # This test assumes there's at least one remote node
       # In a real scenario, we'd set up test nodes
       result = Remote.auto_select()
-      assert is_tuple(result)
-      assert elem(result, 0) in [:ok, :error]
+      assert match?(:ok, result) or match?({:error, _}, result)
     end
 
     test "sets and gets timeout" do
@@ -47,26 +46,30 @@ defmodule DalaDev.RemoteTest do
     test "observes local node" do
       current_node = Node.self()
       assert {:ok, data} = Remote.Observer.observe()
-      assert ^current_node = data[:node]
-      assert data[:system] != nil
-      assert data[:processes] != nil
+      assert data.node == current_node
+      assert data.system.memory.total > 0
+      assert [%{pid: _} | _] = data.processes
     end
 
     test "gets system info" do
       system_info = Remote.Observer.system_info()
-      assert is_map(system_info)
-      assert system_info[:memory] != nil
+
+      assert %{memory: %{total: total}, uptime_ms: uptime_ms} = system_info
+      assert total > 0
+      assert uptime_ms >= 0
     end
 
     test "gets process list" do
-      processes = Remote.Observer.process_list()
-      assert is_list(processes)
+      assert [%{pid: pid, memory: memory} | _] = processes = Remote.Observer.process_list()
+      # pids are rendered as "#PID<...>" strings
+      assert String.starts_with?(pid, "#PID<")
       assert length(processes) > 0
+      assert is_integer(memory) and memory >= 0
     end
 
     test "gets ETS tables" do
       tables = Remote.Observer.ets_tables()
-      assert is_list(tables)
+      assert Enum.all?(tables, fn t -> is_binary(t.id) and is_integer(t.size) end)
     end
   end
 
@@ -78,24 +81,26 @@ defmodule DalaDev.RemoteTest do
 
     test "gets memory report" do
       assert {:ok, report} = Remote.Debugger.memory_report()
-      assert is_map(report)
-      assert Map.has_key?(report, :total)
-      assert Map.has_key?(report, :processes)
+
+      # Same documented shape as the local memory report
+      local = Node.self()
+      assert %{node: ^local, total: _, processes: _, raw: _} = report
+      assert report.raw[:total] > 0
     end
 
     test "gets process state" do
       # Create a simple GenServer to test
       {:ok, pid} = Agent.start_link(fn -> %{count: 42} end)
       assert {:ok, state} = Remote.Debugger.get_state(pid)
-      # State should be inspectable
-      assert is_binary(state)
+      # State is inspect/1 of the agent's state
+      assert state == inspect(%{count: 42})
       Agent.stop(pid)
     end
 
     test "gets process state by name" do
       {:ok, _pid} = Agent.start_link(fn -> %{data: "test"} end, name: :test_agent)
       assert {:ok, state} = Remote.Debugger.get_state(:test_agent)
-      assert is_binary(state)
+      assert state == inspect(%{data: "test"})
       Agent.stop(:test_agent)
     end
 
@@ -117,8 +122,8 @@ defmodule DalaDev.RemoteTest do
       # Use a different process instead
       other_pid = spawn(fn -> Process.sleep(:infinity) end)
       assert {:ok, info} = Remote.Debugger.inspect_process(other_pid)
-      assert is_map(info)
-      assert Map.has_key?(info, :pid)
+      assert info.pid == inspect(other_pid)
+      assert info.message_queue_len == 0
       Process.exit(other_pid, :kill)
     end
 
@@ -156,12 +161,12 @@ defmodule DalaDev.RemoteTest do
       Process.sleep(100)
 
       # Should have captured messages
-      assert is_list(messages)
+      assert Enum.all?(messages, &match?({:trace, _, :send, _, _}, &1))
     end
 
     test "gets supervision tree" do
       assert {:ok, tree} = Remote.Debugger.supervision_tree()
-      assert is_map(tree)
+      assert map_size(tree) > 0
       # Tree can have different structures depending on whether :supervisor process exists
       assert Map.has_key?(tree, :pid) or Map.has_key?(tree, :supervisors)
     end

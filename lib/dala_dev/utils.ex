@@ -31,86 +31,73 @@ defmodule DalaDev.Utils do
   end
 
   @doc """
-  Safely runs an ADB command with timeout protection.
+  Normalizes CLI arguments so underscored long flags keep working.
 
-  Returns `{:ok, output}` on success, `{:error, reason}` on failure.
+  OptionParser only recognizes hyphenated long options (`--dry-run`);
+  passing the documented `--dry_run` spelling is silently dropped on
+  current Elixir releases. Rewrites every argv token that looks like a
+  flag (starts with `--`, including `--flag=value` form) so both
+  spellings parse identically. Non-flag values are passed through.
+
+  ## Examples
+
+      iex> DalaDev.Utils.normalize_cli_args(["a.txt", "--on_conflict", "skip"])
+      ["a.txt", "--on-conflict", "skip"]
+
+      iex> DalaDev.Utils.normalize_cli_args(["--dry_run=true"])
+      ["--dry-run=true"]
+
+  """
+  @spec normalize_cli_args([String.t()]) :: [String.t()]
+  def normalize_cli_args(args) when is_list(args) do
+    Enum.map(args, fn
+      "--" <> flag ->
+        case String.split(flag, "=", parts: 2) do
+          [name, value] -> "--" <> String.replace(name, "_", "-") <> "=" <> value
+          [name] -> "--" <> String.replace(name, "_", "-")
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  @doc """
+  Safely runs ADB with timeout protection.
+
+  Runs `adb` directly (no shell involved), and kills the process if it exceeds
+  the timeout. Works identically on macOS, Linux, and Windows — no external
+  `timeout` binary required.
+
+  Returns `{:ok, output}` on success, `{:error, reason}` on failure where
+  `reason` is trimmed output text or `:timeout`.
 
   ## Options
 
   - `:timeout` - timeout in milliseconds (default: 8000)
   - `:stderr_to_stdout` - whether to merge stderr (default: true)
+  - `:exec` - optional 2-arity fun `(args, opts) :: {output, exit_code}`
+    overriding execution (test seam)
   """
   @spec run_adb_with_timeout(list(String.t()), keyword()) :: {:ok, String.t()} | {:error, term()}
   def run_adb_with_timeout(args, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 8000)
-    stderr_to_stdout = Keyword.get(opts, :stderr_to_stdout, true)
-    cmd = Enum.join(["adb" | args], " ")
+    exec = Keyword.get(opts, :exec, &exec_adb/2)
 
-    if timeout_available?() do
-      run_with_timeout(cmd, timeout, stderr_to_stdout)
-    else
-      IO.puts(
-        "#{IO.ANSI.yellow()}[dala_dev] Warning: 'timeout' command not found. Running without timeout protection.\n" <>
-          "           Commands may hang indefinitely on unresponsive devices.#{IO.ANSI.reset()}"
-      )
+    task = Task.async(fn -> exec.(args, Keyword.take(opts, [:stderr_to_stdout])) end)
 
-      run_without_timeout(cmd, stderr_to_stdout)
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, _exit_code}} -> {:error, String.trim(output)}
+      {:exit, reason} -> {:error, "adb crashed: #{inspect(reason)}"}
+      nil -> {:error, :timeout}
     end
   end
 
-  defp run_with_timeout(cmd, timeout, stderr_to_stdout) do
-    if windows?() do
-      # On Windows, use timeout command if available, otherwise use Task.await
-      case System.find_executable("timeout") do
-        nil ->
-          run_without_timeout(cmd, stderr_to_stdout)
-
-        _ ->
-          case System.cmd("cmd", ["/c", "timeout #{div(timeout, 1000)} && #{cmd}"],
-                 stderr_to_stdout: stderr_to_stdout
-               ) do
-            {output, 0} -> {:ok, String.trim(output)}
-            {_output, 124} -> {:error, :timeout}
-            {output, _code} -> {:error, String.trim(output)}
-          end
-      end
-    else
-      case System.cmd("sh", ["-c", "timeout #{div(timeout, 1000)} #{cmd}"],
-             stderr_to_stdout: stderr_to_stdout
-           ) do
-        {output, 0} -> {:ok, String.trim(output)}
-        {_output, 124} -> {:error, :timeout}
-        {output, _code} -> {:error, String.trim(output)}
-      end
-    end
-  end
-
-  defp run_without_timeout(cmd, stderr_to_stdout) do
-    task =
-      Task.async(fn ->
-        if windows?() do
-          System.cmd("cmd", ["/c", cmd], stderr_to_stdout: stderr_to_stdout)
-        else
-          System.cmd("sh", ["-c", cmd], stderr_to_stdout: stderr_to_stdout)
-        end
-      end)
-
-    try do
-      case Task.await(task, 60_000) do
-        {output, 0} -> {:ok, String.trim(output)}
-        {output, _code} -> {:error, String.trim(output)}
-      end
-    catch
-      :exit, _ -> {:error, :timeout}
-    end
-  end
-
-  defp windows? do
-    :os.type() == {:win32, :nt}
-  end
-
-  defp timeout_available? do
-    System.find_executable("timeout") != nil
+  defp exec_adb(args, opts) do
+    System.cmd("adb", args, stderr_to_stdout: Keyword.get(opts, :stderr_to_stdout, true))
+  rescue
+    e -> {Exception.message(e), 127}
   end
 
   @doc """

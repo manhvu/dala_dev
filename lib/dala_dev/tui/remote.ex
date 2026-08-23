@@ -226,6 +226,7 @@ defmodule DalaDev.Tui.Remote do
     case get_screen_info(node) do
       {:ok, info} ->
         %{remote | screen_info: info}
+
       {:error, _} ->
         # Try to get at least the current screen name
         case get_current_screen(node) do

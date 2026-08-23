@@ -47,6 +47,8 @@ defmodule Mix.Tasks.Dala.Icon do
 
   @impl Mix.Task
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+    DalaDev.Output.configure([])
     {opts, _args, _} = OptionParser.parse(argv, strict: @switches)
 
     project_dir = File.cwd!()
@@ -58,7 +60,7 @@ defmodule Mix.Tasks.Dala.Icon do
     source =
       case opts[:source] do
         nil ->
-          Mix.shell().info("Generating random robot icon...")
+          DalaDev.Output.step("Generating random robot icon")
           DalaDev.IconGenerator.generate_random(project_dir)
           Path.join(project_dir, "icon_source.png")
 
@@ -67,26 +69,26 @@ defmodule Mix.Tasks.Dala.Icon do
             Mix.raise("Source file not found: #{source}")
           end
 
-          Mix.shell().info("Resizing icon from #{source}...")
+          DalaDev.Output.step("Resizing icon from #{source}")
           DalaDev.IconGenerator.generate_from_source(source, project_dir)
           source
       end
 
     if opts[:adaptive] do
-      Mix.shell().info("Generating adaptive Android icons...")
+      DalaDev.Output.step("Generating adaptive Android icons")
       adaptive_opts = if opts[:adaptive_bg], do: [background_color: opts[:adaptive_bg]], else: []
       DalaDev.IconGenerator.generate_adaptive(source, project_dir, adaptive_opts)
     end
 
-    Mix.shell().info("Icons written to #{project_dir}")
-    Mix.shell().info("  Android: android/app/src/main/res/mipmap-*/ic_launcher.png")
+    DalaDev.Output.success("Icons written to #{project_dir}")
+    DalaDev.Output.info("  Android: android/app/src/main/res/mipmap-*/ic_launcher.png")
 
     if opts[:adaptive] do
-      Mix.shell().info(
+      DalaDev.Output.info(
         "  Android (adaptive): mipmap-anydpi-v26/, ic_launcher_foreground.png, values/ic_launcher_background.xml"
       )
     end
 
-    Mix.shell().info("  iOS:     ios/Assets.xcassets/AppIcon.appiconset/")
+    DalaDev.Output.info("  iOS:     ios/Assets.xcassets/AppIcon.appiconset/")
   end
 end

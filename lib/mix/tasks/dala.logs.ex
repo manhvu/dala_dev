@@ -43,6 +43,9 @@ defmodule Mix.Tasks.Dala.Logs do
 
   @impl Mix.Task
   def run(args) do
+    args = DalaDev.Utils.normalize_cli_args(args || [])
+    DalaDev.Output.configure([])
+
     {opts, _} =
       OptionParser.parse!(args,
         strict: [
@@ -85,23 +88,23 @@ defmodule Mix.Tasks.Dala.Logs do
         if save_path do
           case LogCollector.export_logs(save_path, nodes: node_ref, format: format) do
             :ok ->
-              Mix.shell().info("Logs saved to #{save_path}")
+              DalaDev.Output.success("Logs saved to #{save_path}")
 
             {:error, reason} ->
-              Mix.shell().error("Failed to save logs: #{inspect(reason)}")
+              DalaDev.Output.error("Failed to save logs: #{inspect(reason)}")
           end
         else
           display_logs(logs, format)
         end
 
       {:error, reason} ->
-        Mix.shell().error("Failed to collect logs: #{inspect(reason)}")
+        DalaDev.Output.error("Failed to collect logs: #{inspect(reason)}")
     end
   end
 
   defp stream_logs(node_ref, level, save_path, format) do
-    Mix.shell().info("Streaming logs (Ctrl+C to stop)...")
-    Mix.shell().info(String.duplicate("-", 80))
+    DalaDev.Output.step("Streaming logs (Ctrl+C to stop)")
+    DalaDev.Output.info(String.duplicate("-", 80))
 
     stream = LogCollector.stream_logs(node_ref, level: level)
 
@@ -113,7 +116,7 @@ defmodule Mix.Tasks.Dala.Logs do
         stream
         |> Stream.each(fn entry ->
           output = format_entry(entry, format)
-          IO.puts(output)
+          DalaDev.Output.info(output)
           IO.puts(file, output)
         end)
         |> Stream.run()
@@ -123,35 +126,35 @@ defmodule Mix.Tasks.Dala.Logs do
     else
       stream
       |> Stream.each(fn entry ->
-        IO.puts(format_entry(entry, format))
+        DalaDev.Output.info(format_entry(entry, format))
       end)
       |> Stream.run()
     end
   rescue
     e ->
-      Mix.shell().error("Stream error: #{Exception.message(e)}")
+      DalaDev.Output.error("Stream error: #{Exception.message(e)}")
   end
 
   defp display_logs(logs, :text) do
     Enum.each(logs, fn entry ->
-      IO.puts("[#{entry.ts}] #{entry.node} #{entry.level}: #{entry.message}")
+      DalaDev.Output.info("[#{entry.ts}] #{entry.node} #{entry.level}: #{entry.message}")
     end)
 
-    Mix.shell().info("\nTotal: #{length(logs)} entries")
+    DalaDev.Output.info("Total: #{length(logs)} entries")
   end
 
   defp display_logs(logs, :jsonl) do
     Enum.each(logs, fn entry ->
-      IO.puts(Jason.encode!(entry))
+      DalaDev.Output.info(Jason.encode!(entry))
     end)
   end
 
   defp display_logs(logs, :csv) do
-    IO.puts("ts,node,level,message,metadata")
+    DalaDev.Output.info("ts,node,level,message,metadata")
 
     Enum.each(logs, fn entry ->
       meta = inspect(entry.metadata)
-      IO.puts("#{entry.ts},#{entry.node},#{entry.level},\"#{entry.message}\",\"#{meta}\"")
+      DalaDev.Output.info("#{entry.ts},#{entry.node},#{entry.level},\"#{entry.message}\",\"#{meta}\"")
     end)
   end
 

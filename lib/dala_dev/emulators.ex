@@ -90,13 +90,39 @@ defmodule DalaDev.Emulators do
 
   # ── Starting ────────────────────────────────────────────────────────────────
 
+  # Named launch presets. Values are extra emulator CLI flags appended after
+  # `-avd <name>`. Grounded in real emulator flags; the selinux-off recipe is
+  # the documented Android-17-preview workaround (docs/reference/issues.md
+  # #10 — BEAM dies on cgroup SELinux denials).
+  @recipes %{
+    "selinux-off" => ["-selinux", "disabled"],
+    "cold-boot" => ["-no-snapshot"],
+    "wipe-data" => ["-wipe-data"],
+    "no-audio" => ["-no-audio"],
+    "gpu-host" => ["-gpu", "host"]
+  }
+
+  @doc "Returns the available recipe names, sorted."
+  @spec recipes() :: [String.t()]
+  def recipes, do: Map.keys(@recipes) |> Enum.sort()
+
+  @doc """
+  Returns `{:ok, extra_args}` for a named recipe, or `:error` for an unknown
+  name. Public for testing.
+  """
+  @spec recipe_args(String.t()) :: {:ok, [String.t()]} | :error
+  def recipe_args(name) when is_binary(name), do: Map.fetch(@recipes, name)
+
   @doc """
   Starts an Android AVD by name. Returns `:ok` once the emulator process is
   spawned (it boots in the background; `adb wait-for-device` is the caller's
   responsibility if they need to know when it's ready).
+
+  `extra_args` are raw emulator CLI flags appended after `-avd <name>` —
+  see `recipes/0` for curated presets.
   """
-  @spec start_android(String.t()) :: :ok | {:error, String.t()}
-  def start_android(avd_name) when is_binary(avd_name) do
+  @spec start_android(String.t(), [String.t()]) :: :ok | {:error, String.t()}
+  def start_android(avd_name, extra_args \\ []) when is_binary(avd_name) do
     case find_emulator_binary() do
       {:ok, emulator_bin} ->
         # Detach: emulator runs in background; we don't wait. stdin/out/err
@@ -105,7 +131,7 @@ defmodule DalaDev.Emulators do
           Port.open({:spawn_executable, emulator_bin}, [
             :binary,
             :exit_status,
-            args: ["-avd", avd_name],
+            args: ["-avd", avd_name] ++ List.wrap(extra_args),
             env: [{~c"DYLD_FALLBACK_LIBRARY_PATH", false}]
           ])
 

@@ -39,6 +39,10 @@ defmodule Mix.Tasks.Dala.Publish do
 
   @impl Mix.Task
   def run(argv) do
+    argv = DalaDev.Utils.normalize_cli_args(argv || [])
+
+    DalaDev.Output.configure([])
+
     {opts, args, _} = OptionParser.parse(argv, strict: @switches)
 
     case :os.type() do
@@ -54,15 +58,15 @@ defmodule Mix.Tasks.Dala.Publish do
     ipa_path = resolve_ipa_path(args)
     asc = load_asc_config!()
 
-    Mix.shell().info("")
-    Mix.shell().info("#{cyan()}=== Uploading to App Store Connect ===#{reset()}")
-    Mix.shell().info("  IPA:        #{ipa_path}")
-    Mix.shell().info("  Key ID:     #{asc[:key_id]}")
-    Mix.shell().info("  Issuer ID:  #{asc[:issuer_id]}")
-    Mix.shell().info("  Key path:   #{asc[:key_path]}")
-    Mix.shell().info("")
-    Mix.shell().info("(altool may take a few minutes — IPA is uploaded then validated by Apple.)")
-    Mix.shell().info("")
+    DalaDev.Output.info("")
+    DalaDev.Output.step("Uploading to App Store Connect")
+    DalaDev.Output.info("IPA:        #{ipa_path}")
+    DalaDev.Output.info("Key ID:     #{asc[:key_id]}")
+    DalaDev.Output.info("Issuer ID:  #{asc[:issuer_id]}")
+    DalaDev.Output.info("Key path:   #{asc[:key_path]}")
+    DalaDev.Output.info("")
+    DalaDev.Output.info("(altool may take a few minutes — IPA is uploaded then validated by Apple.)")
+    DalaDev.Output.info("")
 
     install_p8_for_altool!(asc[:key_path], asc[:key_id])
 
@@ -83,12 +87,12 @@ defmodule Mix.Tasks.Dala.Publish do
 
     case System.cmd("xcrun", altool_args, stderr_to_stdout: true, into: IO.stream()) do
       {_, 0} ->
-        Mix.shell().info("")
-        Mix.shell().info("#{green()}✓ Upload accepted by App Store Connect#{reset()}")
-        Mix.shell().info("")
-        Mix.shell().info("Apple is processing the build now (~5-15 minutes).")
-        Mix.shell().info("Once processed, the build appears in TestFlight at:")
-        Mix.shell().info("  #{cyan()}https://appstoreconnect.apple.com/apps#{reset()}")
+        DalaDev.Output.info("")
+        DalaDev.Output.success("Upload accepted by App Store Connect")
+        DalaDev.Output.info("")
+        DalaDev.Output.info("Apple is processing the build now (~5-15 minutes).")
+        DalaDev.Output.info("Once processed, the build appears in TestFlight at:")
+        DalaDev.Output.info("https://appstoreconnect.apple.com/apps")
 
       {_, rc} ->
         Mix.raise("altool exited #{rc} — see output above.")
@@ -197,7 +201,4 @@ defmodule Mix.Tasks.Dala.Publish do
     :ok
   end
 
-  defp green, do: IO.ANSI.green()
-  defp cyan, do: IO.ANSI.cyan()
-  defp reset, do: IO.ANSI.reset()
 end

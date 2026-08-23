@@ -325,7 +325,8 @@ defmodule DalaDev.Remote do
 
     - [Erlang sys:get_state/1](https://www.erlang.org/doc/apps/stdlib/sys.html#get_state/1)
     """
-    @spec get_state(pid() | atom() | {atom(), atom()}) :: {:ok, term()} | {:error, term()}
+    @spec get_state(pid() | atom() | {atom(), atom()}, keyword()) ::
+            {:ok, term()} | {:error, term()}
     def get_state(pid_or_name, opts \\ []) do
       with {:ok, node} <- get_target_node(),
            timeout <- Keyword.get(opts, :timeout, DalaDev.Remote.get_timeout()) do

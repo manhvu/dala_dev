@@ -1,142 +1,116 @@
 defmodule DalaDev.Discovery.AndroidTest do
   use ExUnit.Case, async: true
 
-  alias DalaDev.Discovery.Android
   alias DalaDev.Device
-
-  # ── parse_devices_output/1 ───────────────────────────────────────────────────
+  alias DalaDev.Discovery.Android
 
   describe "parse_devices_output/1" do
-    test "parses authorized emulator" do
+    test "parses a physical device line with product info" do
       output = """
       List of devices attached
-      emulator-5554\tdevice product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 transport_id:1
+      R5CW3089HVB            device product:star2q model:SM-G991B device:r0s
       """
 
-      [device] = Android.parse_devices_output(output)
-      assert device.serial == "emulator-5554"
-      assert device.platform == :android
-      assert device.type == :emulator
-      assert device.status == :discovered
+      assert [%Device{platform: :android, serial: "R5CW3089HVB", type: :physical, status: :discovered}] =
+               Android.parse_devices_output(output)
     end
 
-    test "parses authorized physical device" do
+    test "parses an emulator as type :emulator" do
       output = """
       List of devices attached
-      R5CW3089HVB\tdevice product:moto transport_id:2
+      emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64
       """
 
-      [device] = Android.parse_devices_output(output)
-      assert device.serial == "R5CW3089HVB"
-      assert device.type == :physical
-      assert device.status == :discovered
+      assert [%Device{serial: "emulator-5554", type: :emulator, status: :discovered}] =
+               Android.parse_devices_output(output)
     end
 
-    test "parses unauthorized device" do
+    test "marks unauthorized devices with error message" do
       output = """
       List of devices attached
-      R5CW3089HVB\tunauthorized
+      ABC123                 unauthorized usb:123456X
       """
 
-      [device] = Android.parse_devices_output(output)
-      assert device.serial == "R5CW3089HVB"
-      assert device.status == :unauthorized
-      assert device.error =~ "authorized"
+      assert [%Device{status: :unauthorized} = dev] = Android.parse_devices_output(output)
+      assert dev.serial == "ABC123"
+      assert dev.error =~ "USB debugging not authorized"
     end
 
     test "skips offline devices" do
       output = """
       List of devices attached
-      emulator-5556\toffline
-      """
-
-      assert Android.parse_devices_output(output) == []
-    end
-
-    test "skips empty header-only output" do
-      output = "List of devices attached\n"
-      assert Android.parse_devices_output(output) == []
-    end
-
-    test "parses multiple devices" do
-      output = """
-      List of devices attached
-      emulator-5554\tdevice product:sdk transport_id:1
-      R5CW3089HVB\tdevice product:moto transport_id:2
+      XYZ789                 offline
+      emulator-5554          device
       """
 
       devices = Android.parse_devices_output(output)
-      assert length(devices) == 2
-      serials = Enum.map(devices, & &1.serial)
-      assert "emulator-5554" in serials
-      assert "R5CW3089HVB" in serials
+      assert length(devices) == 1
+      assert hd(devices).serial == "emulator-5554"
     end
 
-    test "parses TCP/IP connected device" do
+    test "handles WiFi-adb serials (ip:port)" do
       output = """
       List of devices attached
-      192.168.1.5:5555\tdevice product:moto transport_id:3
+      192.168.1.5:5555       device
       """
 
-      [device] = Android.parse_devices_output(output)
-      assert device.serial == "192.168.1.5:5555"
-      assert device.type == :physical
+      assert [%Device{serial: "192.168.1.5:5555", type: :physical}] =
+               Android.parse_devices_output(output)
     end
 
-    test "emulator serial prefix determines type" do
+    test "rejects blank lines and unknown states" do
       output = """
       List of devices attached
-      emulator-5554\tdevice transport_id:1
-      ABCD1234\tdevice transport_id:2
+
+      ABC                    recovery
+
+      DEF                    device
       """
 
-      devices = Android.parse_devices_output(output)
-      emulator = Enum.find(devices, &(&1.serial == "emulator-5554"))
-      physical = Enum.find(devices, &(&1.serial == "ABCD1234"))
-      assert emulator.type == :emulator
-      assert physical.type == :physical
+      serials = Android.parse_devices_output(output) |> Enum.map(& &1.serial)
+      assert serials == ["DEF"]
     end
 
-    test "returns %Device{} structs" do
+    test "returns empty list for header only" do
+      assert Android.parse_devices_output("List of devices attached\n") == []
+    end
+
+    test "handles 'no permissions' state as discovered" do
       output = """
       List of devices attached
-      emulator-5554\tdevice transport_id:1
+      BADSERIAL              no permissions (user in plugdev group)
       """
 
-      [device] = Android.parse_devices_output(output)
-      assert %Device{} = device
+      assert [%Device{serial: "BADSERIAL", status: :discovered}] =
+               Android.parse_devices_output(output)
+    end
+
+    test "rejects lines with leading whitespace (empty serial)" do
+      output = "List of devices attached\n   emulator-5556    device product:x"
+
+      assert Android.parse_devices_output(output) == []
     end
   end
 
-  # ── node_suffix_for/1 ────────────────────────────────────────────────────────
-
   describe "node_suffix_for/1" do
-    test "lowercases an alphanumeric USB serial" do
+    test "lowercases and keeps alphanumerics" do
       assert Android.node_suffix_for("ZY22CRLMWK") == "zy22crlmwk"
     end
 
-    test "strips :port and replaces dots with underscores for WiFi-adb" do
+    test "strips WiFi-adb port suffix" do
       assert Android.node_suffix_for("10.0.0.82:5555") == "10_0_0_82"
     end
 
-    test "replaces hyphens with underscores in emulator serials" do
+    test "replaces dashes with underscores" do
       assert Android.node_suffix_for("emulator-5554") == "emulator_5554"
     end
 
-    test "collapses runs of non-alphanumeric chars" do
-      assert Android.node_suffix_for("abc.--..def") == "abc_def"
+    test "collapses runs of non-alphanumerics into a single underscore" do
+      assert Android.node_suffix_for("a--b..c") == "a_b_c"
     end
 
     test "trims leading and trailing underscores" do
-      assert Android.node_suffix_for("---abc---") == "abc"
+      assert Android.node_suffix_for("--abc--") == "abc"
     end
-  end
-
-  # ── integration: list_devices/0 ──────────────────────────────────────────────
-
-  @tag :integration
-  test "list_devices returns a list" do
-    result = Android.list_devices()
-    assert Enum.all?(result, &match?(%Device{}, &1))
   end
 end

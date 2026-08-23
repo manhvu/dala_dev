@@ -3,17 +3,22 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   alias DalaDev.Device
 
+  # Compiled at module-attribute expansion time via
+  # `DalaDev.Utils.compile_regex/2` (compile-time regex sigil literals are unsafe
+  # on Elixir 1.19 / OTP 28.0+).
+  @whitespace_split DalaDev.Utils.compile_regex("\\s+")
+
   # ── Push ────────────────────────────────────────────────────────────────────
 
+  @spec push(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, String.t()}
   def push(%Device{serial: serial}, local, remote, opts) do
     on_conflict = Keyword.get(opts, :on_conflict, :overwrite)
     progress? = Keyword.get(opts, :progress, false)
     pkg = DalaDev.Config.bundle_id()
     remote_abs = resolve_remote(remote, "/data/data/#{pkg}/files")
 
-    unless File.exists?(local) do
-      {:error, "local path does not exist: #{local}"}
-    else
+    if File.exists?(local) do
       rooted? = rooted?(serial)
       mkdir(serial, pkg, Path.dirname(remote_abs), rooted?)
 
@@ -22,6 +27,8 @@ defmodule DalaDev.FileTransfer.Platform.Android do
       else
         push_file(serial, pkg, local, remote_abs, rooted?, on_conflict)
       end
+    else
+      {:error, "local path does not exist: #{local}"}
     end
   catch
     {:error, reason} -> {:error, reason}
@@ -49,7 +56,7 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   defp push_dir(serial, pkg, local, remote, rooted?, on_conflict, progress?) do
     files = list_files(local)
-    if progress?, do: IO.puts("    #{length(files)} file(s) in directory")
+    if progress?, do: DalaDev.Output.info("    #{length(files)} file(s) in directory")
 
     stage_local = Path.join(System.tmp_dir!(), "dala_push_#{serial}.tar")
     stage_dev = "/data/local/tmp/dala_push.tar"
@@ -86,6 +93,8 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   # ── Pull ────────────────────────────────────────────────────────────────────
 
+  @spec pull(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, String.t()}
   def pull(%Device{serial: serial}, remote, local, opts) do
     on_conflict = Keyword.get(opts, :on_conflict, :overwrite)
     progress? = Keyword.get(opts, :progress, false)
@@ -106,7 +115,7 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   defp pull_dir(serial, pkg, remote, local, rooted?, progress?) do
     remote_files = ls_dir(serial, pkg, remote, rooted?)
-    if progress?, do: IO.puts("    #{length(remote_files)} remote file(s)")
+    if progress?, do: DalaDev.Output.info("    #{length(remote_files)} remote file(s)")
 
     stage_local = Path.join(System.tmp_dir!(), "dala_pull_#{serial}.tar")
     stage_dev = "/data/local/tmp/dala_pull.tar"
@@ -164,6 +173,7 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   # ── Ls ──────────────────────────────────────────────────────────────────────
 
+  @spec ls(Device.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def ls(%Device{serial: serial}, remote_path) do
     pkg = DalaDev.Config.bundle_id()
     remote_abs = resolve_remote(remote_path, "/data/data/#{pkg}/files")
@@ -181,6 +191,8 @@ defmodule DalaDev.FileTransfer.Platform.Android do
 
   # ── Sync ────────────────────────────────────────────────────────────────────
 
+  @spec sync(Device.t(), String.t(), String.t(), keyword()) ::
+          {:ok, [{:push | :pull | :delete, String.t()}]} | {:error, String.t()}
   def sync(%Device{serial: serial}, local, remote, opts) do
     delete? = Keyword.get(opts, :delete, false)
     dry_run? = Keyword.get(opts, :dry_run, false)
@@ -303,7 +315,7 @@ defmodule DalaDev.FileTransfer.Platform.Android do
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == ""))
         |> Enum.map(fn line ->
-          case String.split(line, ~r/\s+/, parts: 9) do
+          case String.split(line, @whitespace_split, parts: 9) do
             [_p, _n, _o, _g, size, _d, _t, name | _] -> {name, parse_int(size), 0}
             _ -> {line, 0, 0}
           end
@@ -321,13 +333,7 @@ defmodule DalaDev.FileTransfer.Platform.Android do
     end
   end
 
-  defp list_files(dir) do
-    dir
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.map(fn p -> {Path.relative_to(p, dir), p} end)
-  end
+  defp list_files(dir), do: DalaDev.FileTransfer.Sync.list_files(dir)
 
   defp create_tar(stage_local, local) do
     case System.cmd("tar", ["cf", stage_local, "-C", Path.dirname(local), Path.basename(local)],
@@ -339,43 +345,14 @@ defmodule DalaDev.FileTransfer.Platform.Android do
     end
   end
 
-  defp compute_sync_actions(local_map, remote_map, delete?) do
-    local_keys = Map.keys(local_map) |> MapSet.new()
-    remote_keys = Map.keys(remote_map) |> MapSet.new()
-    push_keys = MapSet.difference(local_keys, remote_keys)
-    only_remote = MapSet.difference(remote_keys, local_keys)
-    delete_actions = if delete?, do: Enum.map(only_remote, &{:delete, &1}), else: []
-
-    update_actions =
-      Enum.flat_map(MapSet.intersection(local_keys, remote_keys), fn key ->
-        local_stat = Map.get(local_map, key)
-        {remote_size, remote_mtime} = Map.get(remote_map, key)
-
-        cond do
-          local_stat.size != remote_size ->
-            [{:push, key}]
-
-          is_integer(local_stat.mtime) and is_integer(remote_mtime) and
-              local_stat.mtime > remote_mtime ->
-            [{:push, key}]
-
-          is_integer(remote_mtime) and is_integer(local_stat.mtime) and
-              remote_mtime > local_stat.mtime ->
-            [{:pull, key}]
-
-          true ->
-            []
-        end
-      end)
-
-    Enum.map(push_keys, &{:push, &1}) ++ update_actions ++ delete_actions
-  end
+  defp compute_sync_actions(local_map, remote_map, delete?),
+    do: DalaDev.FileTransfer.Sync.compute_actions(local_map, remote_map, delete?)
 
   defp print_actions(actions) do
     Enum.each(actions, fn
-      {:push, path} -> IO.puts("    #{IO.ANSI.cyan()}PUSH#{IO.ANSI.reset()}  #{path}")
-      {:pull, path} -> IO.puts("    #{IO.ANSI.yellow()}PULL#{IO.ANSI.reset()}  #{path}")
-      {:delete, path} -> IO.puts("    #{IO.ANSI.red()}DELETE#{IO.ANSI.reset()}  #{path}")
+      {:push, path} -> DalaDev.Output.info("    PUSH  #{path}")
+      {:pull, path} -> DalaDev.Output.info("    PULL  #{path}")
+      {:delete, path} -> DalaDev.Output.info("    DELETE  #{path}")
     end)
   end
 

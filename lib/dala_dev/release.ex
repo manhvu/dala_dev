@@ -23,6 +23,21 @@ defmodule DalaDev.Release do
   (one with no `ProvisionedDevices` and no `ProvisionsAllDevices`).
   """
 
+  # Compiled at module-attribute expansion time via
+  # `DalaDev.Utils.compile_regex/2` (compile-time regex sigil literals are unsafe
+  # on Elixir 1.19 / OTP 28.0+).
+  @identity_line_pattern DalaDev.Utils.compile_regex("\\d+\\) [0-9A-F]+ \"([^\"]+)\"")
+
+  @plist_uuid_pattern DalaDev.Utils.compile_regex("<key>UUID</key>\\s*<string>([^<]+)</string>")
+
+  @plist_app_id_pattern DalaDev.Utils.compile_regex(
+                          "<key>application-identifier</key>\\s*<string>([^<]+)</string>"
+                        )
+
+  @plist_team_id_pattern DalaDev.Utils.compile_regex(
+                           "<key>TeamIdentifier</key>\\s*<array>\\s*<string>([^<]+)</string>"
+                         )
+
   @doc """
   Build a signed `.ipa` for App Store / TestFlight distribution.
 
@@ -88,7 +103,7 @@ defmodule DalaDev.Release do
          ) do
       {output, 0} ->
         identities =
-          Regex.scan(~r/\d+\) [0-9A-F]+ "([^"]+)"/, output)
+          Regex.scan(@identity_line_pattern, output)
           |> Enum.map(fn [_, full] -> full end)
           |> Enum.filter(&String.contains?(&1, "Apple Distribution"))
           |> Enum.uniq()
@@ -112,9 +127,7 @@ defmodule DalaDev.Release do
              """}
 
           [identity] ->
-            IO.puts(
-              "  #{IO.ANSI.cyan()}Auto-detected distribution identity: #{identity}#{IO.ANSI.reset()}"
-            )
+            DalaDev.Output.info("  Auto-detected distribution identity: #{identity}")
 
             {:ok, identity}
 
@@ -193,13 +206,11 @@ defmodule DalaDev.Release do
 
       [%{uuid: u, team_id: t, app_id: aid}] ->
         unless is_binary(uuid) do
-          IO.puts(
-            "  #{IO.ANSI.cyan()}Auto-detected App Store profile: #{u} (team #{t})#{IO.ANSI.reset()}"
-          )
+          DalaDev.Output.info("  Auto-detected App Store profile: #{u} (team #{t})")
 
           if String.ends_with?(aid, ".*") do
-            IO.puts(
-              "  #{IO.ANSI.yellow()}  using wildcard profile — run `mix dala.provision --distribution` to create a dedicated one for #{bundle_id}#{IO.ANSI.reset()}"
+            DalaDev.Output.warn(
+              "    using wildcard profile — run `mix dala.provision --distribution` to create a dedicated one for #{bundle_id}"
             )
           end
         end
@@ -238,14 +249,9 @@ defmodule DalaDev.Release do
          {s, _} <- :binary.match(data, "<?xml"),
          {e, len} <- :binary.match(data, "</plist>") do
       xml = binary_part(data, s, e - s + len)
-      uuid = capture(xml, ~r/<key>UUID<\/key>\s*<string>([^<]+)<\/string>/)
-      app_id = capture(xml, ~r/<key>application-identifier<\/key>\s*<string>([^<]+)<\/string>/)
-
-      team =
-        capture(
-          xml,
-          ~r/<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]+)<\/string>/
-        )
+      uuid = capture(xml, @plist_uuid_pattern)
+      app_id = capture(xml, @plist_app_id_pattern)
+      team = capture(xml, @plist_team_id_pattern)
 
       pd = String.contains?(xml, "<key>ProvisionedDevices</key>")
       pad = String.contains?(xml, "<key>ProvisionsAllDevices</key>")

@@ -43,6 +43,8 @@ defmodule Mix.Tasks.Dala.Release do
 
   @impl Mix.Task
   def run(_args) do
+    DalaDev.Output.configure([])
+
     case :os.type() do
       {:unix, :darwin} ->
         :ok
@@ -57,12 +59,12 @@ defmodule Mix.Tasks.Dala.Release do
 
     case DalaDev.Release.build_ipa() do
       {:ok, path} ->
-        Mix.shell().info("")
-        Mix.shell().info("#{green()}✓ Release build complete#{reset()}")
-        Mix.shell().info("  IPA: #{cyan()}#{path}#{reset()}")
-        Mix.shell().info("  Size: #{file_size_human(path)}")
-        Mix.shell().info("")
-        Mix.shell().info("Next: #{cyan()}mix dala.publish#{reset()} to upload to TestFlight.")
+        DalaDev.Output.info("")
+        DalaDev.Output.success("Release build complete")
+        DalaDev.Output.info("IPA: #{path}")
+        DalaDev.Output.info("Size: #{file_size_human(path)}")
+        DalaDev.Output.info("")
+        DalaDev.Output.info("Next: mix dala.publish to upload to TestFlight.")
 
       {:error, reason} ->
         Mix.raise(reason)
@@ -89,7 +91,4 @@ defmodule Mix.Tasks.Dala.Release do
     end
   end
 
-  defp green, do: IO.ANSI.green()
-  defp cyan, do: IO.ANSI.cyan()
-  defp reset, do: IO.ANSI.reset()
 end
